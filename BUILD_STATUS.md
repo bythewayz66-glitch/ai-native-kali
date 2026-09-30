@@ -1,6 +1,49 @@
 # BUILD STATUS — AI-native Kali
 
-**Last verified:** 2026-09-28, one full run of `make dev` + `make smoke` + the full pytest
+**Last verified:** 2026-09-30, one full run of the pytest suite + the Node board suite on
+the build host (Phase 9 — push/handoff round).
+
+> ### Phase 9 addendum — push, handoff, and the ISO blocker pinned
+>
+> **Test suite:** **1952 collected — 1951 passed, 1 failed, 16 skipped**; Node board suite
+> **25 passed**. The single failure is
+> `tests/test_phase7_profiles.py::TestPreflight::test_on_this_host_the_preflight_reports_the_real_blocker`,
+> which asserts `preflight()["ok"] is False` — i.e. it hardcodes the assumption that this
+> sandbox lacks the ISO tooling. In this run the sandbox **does** have `lb`, `xorriso` and
+> `debootstrap`, so `preflight()` correctly returns `ok: True` and the assertion fails. It
+> is an environment-dependent test, **not a code regression**; it passes on a host without
+> the ISO tooling.
+>
+> **Defect fixed — the live-build mirror was never named.** `packaging/live-build/auto/config`
+> did not pass `--mirror-bootstrap` / `--mirror-chroot` / `--mirror-binary`, so live-build
+> fell back to its Debian default and asked it for `dists/kali-rolling/Release`, which does
+> not exist on the Debian mirror. debootstrap died with
+> `Failed getting release file .../dists/kali-rolling/Release`. The Kali mirror is now
+> stated explicitly (`KALI_MIRROR`, default `http://http.kali.org/kali`). With the fix the
+> build proceeds past bootstrap.
+>
+> **ISO build — attempted for real, still blocked, blocker now pinned.** With the mirror
+> fixed, debootstrap reached the chroot and failed on
+> `mknod: .../chroot/test-dev-null: Operation not permitted` →
+> `Cannot install into target ... mounted with noexec or nodev`. The sandbox runs under a
+> seccomp filter (`Seccomp: 2`); `mknod` is denied even as root and even on a fresh tmpfs,
+> and `losetup` is denied too. `cap_mknod` is present, so this is the seccomp policy, not a
+> capability gap. **No bootable image was produced and no boot log was captured.** A real
+> Kali host with `live-build`/`xorriso`/`debootstrap` and root is required — see
+> `docs/BUILD_HOST.md` §2.
+>
+> **Push — attempted, failed, no credentials.** The tree was committed locally
+> (`6643b3ef4fb5a8b8e9c5121de55f9314e49274ca`, branch `main`, 377 tracked files) and pushed
+> to `https://github.com/bythewayz66-glitch/petrichor.git`:
+> `remote: Repository not found.` / `fatal: Authentication failed` (exit 128). The sandbox
+> has no GitHub credentials of any kind (no `gh`, no token, no SSH key, no netrc, no GitHub
+> MCP) and the repo is private. Network to GitHub is fine (`200`). Supply a PAT or SSH key
+> and push — see `HANDOFF.md` §5.
+>
+> **`HANDOFF.md`** was added at the repo root: self-contained state, blockers, next
+> commands and file map for a fresh local agent.
+
+**Last verified (Phase 8):** 2026-09-28, one full run of `make dev` + `make smoke` + the full pytest
 suite on the build host (Phase 8).
 
 | Signal | Result |
