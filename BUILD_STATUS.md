@@ -1,7 +1,50 @@
 # BUILD STATUS — AI-native Kali
 
 **Last verified:** 2026-09-30, one full run of the pytest suite + the Node board suite on
-the build host (Phase 9 — push/handoff round).
+the build host (Phase 9 — push/handoff round). Phase 10 changed **no application code** —
+it is the dedicated-repo split and repo hygiene — so the Phase 9 test numbers still stand.
+
+> ### Phase 10 addendum — dedicated repo (`ai-native-kali`), separated from `petrichor`
+>
+> **The project now targets its own repo, not `petrichor`.** `petrichor` is a different
+> project (a private Unity/C# game) and must not be touched. `origin` in this tree points at
+> `https://github.com/bythewayz66-glitch/ai-native-kali`.
+>
+> **Repo hygiene — `.gitignore` hardened.** Now also excludes staged build output
+> (`var/build/`, `dist/`, `build/`, `*.deb`, `*.tar.gz|.xz|.bz2`, `*.zip`), model-bundle
+> weights (`bundle/`, `*.gguf`, `*.safetensors`, `*.onnx`, `*.pt`, `*.pth`, `*.bin`), disk
+> images (`*.img`, `*.qcow2`, `*.vmdk`, `*.vdi`), coverage/cache dirs
+> (`.coverage`, `.mypy_cache/`, `.ruff_cache/`, `.tox/`) and editor/OS noise. Verified with
+> `git check-ignore` that **no tracked source file is excluded** (0 hits) and that no
+> `build/`, `dist/` or `bundle/` directory exists in the tree, so no real source is caught.
+> **378 tracked files**, clean working tree.
+>
+> **Push helper added — `push_to_github.sh`.** Creates the private repo `ai-native-kali`,
+> sets `origin` and pushes `main`, using a PAT. It **refuses to run when `origin` points at
+> `petrichor`**, so the two projects can never be mixed. Verified by execution, not just by
+> reading: `bash -n` clean; the no-token path exits `2` with a clear message; a bad token
+> produces GitHub's `Bad credentials` / `401` and exits `1`; and setting `origin` back to
+> `petrichor` makes the guard fire. On a successful push the token is used only for that
+> one push and is not written to `.git/config`.
+>
+> **Push — attempted for real against the new repo, still blocked, no credentials.**
+> `POST https://api.github.com/user/repos` → **HTTP 401** `{"message": "Requires
+> authentication"}`; `GIT_TERMINAL_PROMPT=0 git push -u origin main` →
+> `remote: Repository not found.` / `fatal: Authentication failed` (exit 128). The sandbox
+> has **no GitHub credentials of any kind** (no `gh`, no `GITHUB_TOKEN`/`GH_TOKEN`, no
+> `~/.git-credentials`, no `~/.netrc`, no SSH key, no GitHub MCP integration). Network to
+> GitHub is fine (`github.com` → `200`, `api.github.com` → `200`), so this is a credentials
+> gap, not a network problem. **The repo was not created and nothing was pushed.**
+>
+> **Local commit ready:** branch `main`, HEAD
+> `abda24ec1ff1112848e4646124e1ec83983470b1` (`Harden .gitignore for build artifacts and
+> large binaries`), on top of `c3c98a6` (v9 HANDOFF) and `6643b3e` (v8 tree + `legacy_v7/` +
+> the live-build mirror fix). It is a **fresh root commit**, so the new repo starts clean —
+> no history to reconcile and no force-push needed. Run `GITHUB_TOKEN=… ./push_to_github.sh`
+> to finish it; see `HANDOFF.md` §5.
+>
+> **`HANDOFF.md` refreshed** for the dedicated repo: target repo, current commit, blockers
+> (ISO / weights / live crew), next commands and the file map.
 
 > ### Phase 9 addendum — push, handoff, and the ISO blocker pinned
 >
