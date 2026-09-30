@@ -4,9 +4,11 @@
 **Target repo:** `https://github.com/bythewayz66-glitch/ai-native-kali` — a **new, dedicated**
 repo. This project must **never** be pushed to `petrichor` (a separate private Unity/C#
 game). The `origin` remote here already points at `ai-native-kali`.
-**Local commit:** branch `main`, **378 tracked files**, HEAD = `abda24ec1ff1112848e4646124e1ec83983470b1`
-(`Harden .gitignore for build artifacts and large binaries`), on top of `c3c98a6` (the v9
-HANDOFF) and `6643b3e` (the v8 tree + `legacy_v7/` + the live-build mirror fix).
+**Local commit:** branch `main`, **379 tracked files**. The authoritative tip is
+`git log -1 --format=%H` on `main` (branch `main`). The tree was prepared by the Phase 10
+commit — dedicated repo, repo hygiene, push helper, HANDOFF and BUILD_STATUS — which sits on
+top of the Phase 9 HANDOFF commit, the hardened-`.gitignore` commit, and the v8 tree commit
+(which carries `legacy_v7/` and the live-build mirror fix).
 **Push status:** ❌ **FAILED — no credentials in the build sandbox.** See §5.
 
 This document is self-contained: a fresh local agent can continue from here without the
@@ -217,9 +219,10 @@ git push -u origin main
 gh repo create ai-native-kali --private --source=. --remote=origin --push
 ```
 
-The local commit is ready and needs no changes: **`abda24ec1ff1112848e4646124e1ec83983470b1`**
-on branch `main`, 378 tracked files. It is a **fresh root commit** (the sandbox had no
-`.git`), so the new repo starts clean — no history to reconcile, no force-push needed.
+The local commit is ready and needs no changes: branch `main`, 379 tracked files; read the
+exact tip with `git log -1 --format=%H` (it is the Phase 10 commit that contains this file).
+It is a **fresh root commit** (the sandbox had no `.git`), so the new repo starts clean — no
+history to reconcile, no force-push needed.
 
 ---
 

@@ -17,7 +17,7 @@ it is the dedicated-repo split and repo hygiene — so the Phase 9 test numbers 
 > (`.coverage`, `.mypy_cache/`, `.ruff_cache/`, `.tox/`) and editor/OS noise. Verified with
 > `git check-ignore` that **no tracked source file is excluded** (0 hits) and that no
 > `build/`, `dist/` or `bundle/` directory exists in the tree, so no real source is caught.
-> **378 tracked files**, clean working tree.
+> **379 tracked files**, clean working tree.
 >
 > **Push helper added — `push_to_github.sh`.** Creates the private repo `ai-native-kali`,
 > sets `origin` and pushes `main`, using a PAT. It **refuses to run when `origin` points at
@@ -36,11 +36,12 @@ it is the dedicated-repo split and repo hygiene — so the Phase 9 test numbers 
 > GitHub is fine (`github.com` → `200`, `api.github.com` → `200`), so this is a credentials
 > gap, not a network problem. **The repo was not created and nothing was pushed.**
 >
-> **Local commit ready:** branch `main`, HEAD
-> `abda24ec1ff1112848e4646124e1ec83983470b1` (`Harden .gitignore for build artifacts and
-> large binaries`), on top of `c3c98a6` (v9 HANDOFF) and `6643b3e` (v8 tree + `legacy_v7/` +
-> the live-build mirror fix). It is a **fresh root commit**, so the new repo starts clean —
-> no history to reconcile and no force-push needed. Run `GITHUB_TOKEN=… ./push_to_github.sh`
+> **Local commit ready:** branch `main`, 379 tracked files. Read the exact tip with
+> `git log -1 --format=%H` — it is the Phase 10 commit (`Phase 10: dedicated repo, repo
+> hygiene, push helper, HANDOFF and BUILD_STATUS`), which sits on top of the hardened
+> `.gitignore` commit, the v9 HANDOFF commit and the v8 tree commit (carrying `legacy_v7/`
+> and the live-build mirror fix). It is a **fresh root commit**, so the new repo starts clean
+> — no history to reconcile and no force-push needed. Run `GITHUB_TOKEN=… ./push_to_github.sh`
 > to finish it; see `HANDOFF.md` §5.
 >
 > **`HANDOFF.md` refreshed** for the dedicated repo: target repo, current commit, blockers
