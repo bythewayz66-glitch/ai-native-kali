@@ -1,9 +1,10 @@
 # HANDOFF — AI-native Kali
 
 **Written:** 2026-09-30 · **Tree:** `ai-native-kali_v9` (this repo root)
-**Local commit:** `51a9e685db8c408555e60bf30a2864dd42631c4f` (branch `main`, 378 tracked files)
-— two commits: `6643b3e` (the v8 tree + `legacy_v7/` + the live-build mirror fix) and
-`51a9e68` (this `HANDOFF.md` + the `BUILD_STATUS.md` Phase 9 addendum).
+**Local commit:** branch `main`, 378 tracked files. The final commit on `main` is the one
+that contains this file (`git log -1 --format=%H`); it sits on top of `6643b3e` (the v8
+tree + `legacy_v7/` + the live-build mirror fix) and `51a9e68` (the `BUILD_STATUS.md`
+Phase 9 addendum).
 **Push status:** ❌ **FAILED — no credentials in the build sandbox.** See §5.
 
 This document is self-contained: a fresh local agent can continue from here without
