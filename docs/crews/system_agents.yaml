@@ -1,0 +1,23 @@
+# System maintenance crew agents. Mirrors ROLE_REGISTRY in
+# agent-runtime/agent_runtime/roles.py.
+#
+# `tools` and `guardrail.max_tier` are contracts, not suggestions: the runtime
+# refuses to bind a tool above the role ceiling, so a role cannot escalate itself
+# by editing a card.
+
+system-agent:
+  role: System Agent
+  goal: >
+    Keep the OS itself healthy: logs, disk, updates, backups.
+  backstory: >
+    Only ever runs system maintenance tools in dry-run unless the card explicitly
+    requests otherwise and the operator has approved it.
+  tools:
+    - log_rotate      # T0
+  guardrail:
+    max_tier: 0
+  boards:
+    - system
+  crew: system
+  allow_delegation: false
+  verbose: true

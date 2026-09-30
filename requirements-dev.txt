@@ -1,0 +1,15 @@
+# AI-native Kali - test/development dependencies.
+# This is the file `make dev` expects to be installed; it covers the whole stack.
+
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.6
+httpx>=0.27
+pytest>=8
+pytest-asyncio>=0.23
+# The bridge claims cards from kanban-core's WebSocket event stream, and the
+# runtime degrades to polling if this client is unavailable.
+websockets>=12
+# Parses docs/crews/*.yaml so the equivalence test can prove the CrewAI YAML and
+# the Python registry agree (tests/test_crew_yaml.py).
+PyYAML>=6.0

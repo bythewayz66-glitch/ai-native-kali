@@ -1,0 +1,123 @@
+# AI-native Kali - local development stack.
+#
+# Parity with `make dev`: same six services, same ports, same shared PYTHONPATH.
+# Use either; this file exists for machines where Docker is the easier path.
+#
+#   docker compose up --build      bring the stack up
+#   docker compose run --rm smoke  run the end-to-end smoke test
+#
+# Live tool execution stays OFF: TOOLS_LIVE=0 and TOOLS_UNLOCK empty are the
+# defaults and are set explicitly here so nobody inherits a permissive shell.
+
+x-common: &common
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: ai-native-kali:dev
+  working_dir: /app
+  environment: &env
+    PYTHONPATH: /app/kanban-core:/app/tool-frontends:/app/agent-runtime:/app/observability:/app/hermes-shell:/app/board-ui
+    TOOLS_LIVE: "0"
+    TOOLS_UNLOCK: ""
+    TOOLS_MAX_TIER: "3"
+    TOOLS_DRY_RUN: "1"
+    TOOLS_AUDIT_DB: /data/tool-audit.db
+    KANBAN_DB: /data/kanban.db
+    OBS_DB: /data/obs.db
+    KANBAN_URL: http://kanban-core:8081
+    KANBAN_WS_URL: ws://kanban-core:8081/ws/events
+    TOOLS_URL: http://tool-frontends:8083
+    BRIDGE_USE_STREAM: "1"
+    BRIDGE_AUTOSTART: "1"
+    MODEL_ENABLED: "0"
+  volumes:
+    - kali-data:/data
+  restart: unless-stopped
+  healthcheck:
+    test: ["CMD-SHELL", "python3 -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:PORT_PLACEHOLDER/health').status==200 else 1)\""]
+    interval: 5s
+    timeout: 3s
+    retries: 12
+    start_period: 5s
+
+services:
+  kanban-core:
+    <<: *common
+    command: python3 -m uvicorn kanban_core.api:app --host 0.0.0.0 --port 8081
+    ports: ["8081:8081"]
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8081/health').status==200 else 1)\""]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  tool-frontends:
+    <<: *common
+    command: python3 -m uvicorn tool_frontends.server:app --host 0.0.0.0 --port 8083
+    ports: ["8083:8083"]
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8083/health').status==200 else 1)\""]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  observability:
+    <<: *common
+    command: python3 -m uvicorn observability.server:app --host 0.0.0.0 --port 8084
+    ports: ["8084:8084"]
+    depends_on: [kanban-core, tool-frontends]
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8084/health').status==200 else 1)\""]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  agent-runtime:
+    <<: *common
+    command: python3 -m uvicorn agent_runtime.server:app --host 0.0.0.0 --port 8082
+    ports: ["8082:8082"]
+    depends_on: [kanban-core, tool-frontends]
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8082/health').status==200 else 1)\""]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  hermes-shell:
+    <<: *common
+    command: python3 -m uvicorn hermes_shell.server:app --host 0.0.0.0 --port 8085
+    ports: ["8085:8085"]
+    depends_on: [kanban-core]
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8085/health').status==200 else 1)\""]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  board-ui:
+    <<: *common
+    command: python3 -m uvicorn board_ui.server:app --host 0.0.0.0 --port 8086
+    ports: ["8086:8086"]
+    depends_on: [kanban-core]
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8086/health').status==200 else 1)\""]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  # One-shot: proves the full loop against the running stack.
+  smoke:
+    <<: *common
+    profiles: ["tools"]
+    command: python3 scripts/smoke_test.py --verbose
+    restart: "no"
+    depends_on: [kanban-core, tool-frontends, observability, agent-runtime, hermes-shell, board-ui]
+
+volumes:
+  kali-data:

@@ -1,0 +1,29 @@
+version: "1.0"
+
+# Reporting crew - CrewAI spec. Mirrors agent-runtime/agent_runtime/crews.py
+# (CREWS["reporting"]) and roles.py. tests/test_crew_yaml.py asserts this file and
+# the Python registry agree, so the two cannot drift apart silently.
+#
+# Phase 7, item 6: this spec closes the gap where only two of four crews had a
+# manifest, which had made model coverage a side effect of who wrote one.
+
+reporting:
+  name: reporting
+  display_name: Reporting Crew
+  goal: >
+    Turn card traces and artifacts into the deliverable report.
+  process: sequential
+
+  boards:
+    - engagement
+    - agent
+
+  # T0: the reporting crew reads what other crews produced. It binds no tools,
+  # which is why its ceiling is the passive tier rather than a policy choice.
+  max_tier: 0
+
+  agents:
+    - report-writer
+
+  tasks:
+    - assemble_report

@@ -1,0 +1,12 @@
+Package: kali-ai-native-agents
+Version: 0.1.0
+Section: metapackages
+Priority: optional
+Architecture: all
+Depends: kali-ai-native-core, python3-httpx
+Maintainer: AI-native Kali project <maintainer@example.invalid>
+Description: AI-native Kali - CrewAI agent runtime and Kanban bridge
+ Installs the agent runtime: the Kanban <-> CrewAI bridge, the crew and role
+ definitions, and the human-in-the-loop approval gate. Cards in the Assigned
+ column are claimed by crews, executed through the guardrailed tool layer,
+ and released to Review with traces and artifacts attached.

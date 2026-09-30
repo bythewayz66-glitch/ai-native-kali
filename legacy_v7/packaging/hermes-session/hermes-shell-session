@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Session entry point for the Hermes AI Desktop (Wayland session).
+#
+# The .desktop file under /usr/share/wayland-sessions points here (see
+# packaging/hermes-session/hermes-shell.desktop: Exec=/usr/bin/hermes-shell-session).
+# Until Phase 6 that file pointed at a binary nothing in the image ever created,
+# so selecting the session would have failed silently back to the greeter.
+#
+# Order of preference, and why:
+#   1. the GTK4 layer-shell client - a real anchored panel on the compositor;
+#   2. the browser panel it replaces - degraded, but a working surface.
+# A session entry that exits non-zero leaves the user staring at a black screen
+# with no explanation, so the fallback is deliberate rather than an accident.
+set -euo pipefail
+
+export SHELL_URL="${SHELL_URL:-http://127.0.0.1:8085/panel}"
+SHELL_EDGE="${SHELL_EDGE:-top}"
+export SHELL_EDGE
+
+# The AI-native services must be up before the panel has anything to render.
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl start kali-ai.target 2>/dev/null || true
+fi
+
+if python3 -m hermes_shell.gtk.client "$@"; then
+  exit 0
+fi
+
+status=$?
+echo "hermes-shell-session: GTK client did not start (exit $status); falling back to the browser panel" >&2
+
+if command -v xdg-open >/dev/null 2>&1; then
+  exec xdg-open "$SHELL_URL"
+fi
+
+echo "hermes-shell-session: no GTK client and no xdg-open; panel remains at $SHELL_URL" >&2
+exit "$status"

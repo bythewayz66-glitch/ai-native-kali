@@ -1,0 +1,37 @@
+version: "1.0"
+
+# Remediation crew - CrewAI spec. Mirrors agent-runtime/agent_runtime/crews.py
+# (CREWS["remediation"]) and roles.py. tests/test_crew_yaml.py asserts this file
+# and the Python registry agree, so the two cannot drift apart silently.
+#
+# Phase 8, item 2. This crew is the one that *spawns* work: when a finding is
+# recorded, it opens a scoped remediation sub-card whose scope is narrowed from
+# the finding's. The narrowing rule lives in kanban-core/kanban_core/scope_model.py
+# and is documented in docs/SUB_CARD_SCOPE_MODEL.md.
+
+remediation:
+  name: remediation
+  display_name: Remediation Crew
+  goal: >
+    Close a finding: verify the fix landed and the exposure is gone.
+  process: sequential
+
+  # Board kinds this crew serves (CrewDef.boards).
+  boards:
+    - engagement
+    - agent
+
+  # Highest guardrail tier any step in this crew may touch.
+  # T1 only, deliberately: remediation *verifies* a fix (patch level, service
+  # exposure, firewall rule, integrity baseline). It does not re-exploit, so it
+  # never needs the T2 gate - and a remediation crew that could re-run an exploit
+  # would be a second way to do the thing the gate exists to control.
+  max_tier: 1
+
+  # Ordered roles, matching CrewDef.steps. Order is significant: it is the
+  # execution order the bridge follows.
+  agents:
+    - remediation-specialist
+
+  tasks:
+    - verify_remediation

@@ -1,0 +1,26 @@
+#!/bin/bash
+# Install the AI-native metapackages into the chroot.
+#
+# Runs inside the chroot during `lb build`. The metapackages are copied in by
+# the build script before this hook fires.
+set -e
+
+echo "[kali-ai-native] installing AI-native metapackages"
+
+for pkg in kali-ai-native-core kali-ai-native-shell kali-ai-native-agents; do
+  if [ -d "/opt/ai-native-kali/metapackages/$pkg" ]; then
+    echo "  -> $pkg"
+    dpkg-deb --build --root-owner-group "/opt/ai-native-kali/metapackages/$pkg" \
+      "/tmp/$pkg.deb"
+    dpkg -i "/tmp/$pkg.deb"
+  else
+    echo "  !! $pkg not staged under /opt/ai-native-kali/metapackages" >&2
+    exit 1
+  fi
+done
+
+# Seed the first-boot wizard's state directory (blueprint section 07).
+install -d -m 0755 /var/lib/kali-ai
+install -d -m 0700 /var/lib/kali-ai/models
+
+echo "[kali-ai-native] metapackages installed"

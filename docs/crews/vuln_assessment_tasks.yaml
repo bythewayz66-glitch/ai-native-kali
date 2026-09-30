@@ -1,0 +1,45 @@
+# Vuln-assessment crew tasks. Mirrors the CrewSteps in CREWS["vuln-assessment"].
+
+http_fingerprint:
+  description: >
+    Fingerprint the web stack on {target}: HTTP/HTTPS status codes, server
+    technology, TLS posture and redirect behaviour. Confirm the service is
+    reachable before any intrusive step is proposed.
+  expected_output: >
+    Per-scheme: status, server header, technology hints, TLS notes.
+  agent: web-specialist
+  tools:
+    - httpx_probe
+  guardrail_tier: 1
+  requires_approval: false
+  inputs:
+    - target
+
+web_server_scan:
+  description: >
+    Run an intrusive web-server configuration scan against {target}. Prepare the
+    exact arguments, then WAIT for a human gate. Do not proceed on timeout, and
+    do not attempt to work around the gate.
+  expected_output: >
+    Findings list: item, path/vector, evidence, and a provisional risk rating.
+  agent: web-specialist
+  tools:
+    - nikto_scan
+  guardrail_tier: 2
+  requires_approval: true
+  on_reject: skip
+  on_timeout: block
+
+# The triage step consumes the scan results; it declares no new tool binding,
+# matching CrewStep(role="vuln-analyst", tools=[]).
+triage_findings:
+  description: >
+    Triage the raw output into ranked findings with remediation notes. Mark each
+    finding as confirmed, suspected or informational and state the evidence.
+  expected_output: >
+    A ranked findings table: finding, status (confirmed/suspected/info),
+    rationale, remediation.
+  agent: vuln-analyst
+  tools: []
+  guardrail_tier: 0
+  requires_approval: false

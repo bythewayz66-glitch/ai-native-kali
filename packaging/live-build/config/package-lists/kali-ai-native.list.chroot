@@ -1,0 +1,56 @@
+# AI-native Kali: chroot package list (live-build)
+# Consumed by `lb build`. Keep this file sorted; live-build does not care about
+# order but review diffs are much easier.
+
+# --- the Kali substrate -------------------------------------------------
+kali-linux-core
+kali-tools-top10
+kali-tools-information-gathering
+kali-tools-vulnerability
+kali-tools-web
+kali-tools-passwords
+kali-tools-wireless
+kali-tools-forensics
+kali-tools-reverse-engineering
+kali-tools-exploitation
+kali-tools-reporting
+
+# --- display / session --------------------------------------------------
+wayland-protocols
+weston
+xwayland
+xserver-xorg-core
+mesa-utils
+fonts-jetbrains-mono
+
+# --- AI runtime ---------------------------------------------------------
+python3
+python3-venv
+python3-pip
+sqlite3
+
+# --- Hermes desktop shell dependencies (webview + node runtime) ---------
+nodejs
+npm
+libwebkit2gtk-4.1-0
+
+# --- GTK4 / Wayland panel client (Phase 6 item 5) -----------------------
+# The layer-shell client is a real compositor client, not a browser tab, so the
+# image needs the GTK4 stack and the layer-shell library itself. Without
+# gir1.2-webkit-6.0 the client cannot render the panel and falls back to a plain
+# toplevel window (see hermes-shell-session); without libgtk4-layer-shell it
+# cannot reserve an exclusive zone and does the same. Neither is fatal, which is
+# why both are listed as dependencies of the shell rather than the session.
+gir1.2-gtk-4.0
+gir1.2-webkit-6.0
+python3-gi
+libgtk4-layer-shell0
+
+# A GTK application wants a session bus; without one it logs "Unable to acquire
+# session bus" on every start (observed while verifying the client on a real
+# Wayland session) and loses portal/a11y integration.
+dbus-x11
+
+
+# --- AI-native components (installed from the local metapackages) -------
+# shipped via config/hooks/0005-install-metapackages.hook.chroot

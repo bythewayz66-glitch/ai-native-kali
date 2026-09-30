@@ -1,0 +1,27 @@
+[Unit]
+Description=AI-native Kali - Hermes shell panel and Kanban surfaces
+Documentation=file:/usr/share/doc/kali-ai-native/README.md
+After=network-online.target kali-ai-kanban.service kali-ai-observability.service
+Wants=kali-ai-kanban.service kali-ai-observability.service
+PartOf=kali-ai.target
+
+[Service]
+Type=simple
+User=%i
+Environment=SHELL_HOST=127.0.0.1
+Environment=SHELL_PORT=8085
+Environment=KANBAN_URL=http://127.0.0.1:8081
+Environment=OBS_URL=http://127.0.0.1:8084
+Environment=RUNTIME_URL=http://127.0.0.1:8082
+Environment=TOOLS_URL=http://127.0.0.1:8083
+ExecStart=/usr/bin/python3 -m uvicorn hermes_shell.server:app --host 127.0.0.1 --port 8085
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/kali-ai /var/log/kali-ai
+
+[Install]
+WantedBy=graphical-session.target kali-ai.target

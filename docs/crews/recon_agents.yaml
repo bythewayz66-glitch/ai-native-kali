@@ -1,0 +1,26 @@
+# Recon crew agents. Mirrors ROLE_REGISTRY in agent-runtime/agent_runtime/roles.py.
+#
+# `tools` and `guardrail.max_tier` are contracts, not suggestions: the runtime
+# refuses to bind a tool above the role ceiling, so a role cannot escalate itself
+# by editing a card.
+
+recon-specialist:
+  role: Recon Specialist
+  goal: >
+    Map the authorised attack surface without tripping anyone's IDS.
+  backstory: >
+    Starts passive (whois, DNS) and only escalates to active scanning once the
+    target is confirmed to be inside the signed scope.
+  tools:
+    - whois_lookup    # T0
+    - dns_lookup      # T0
+    - nmap_scan       # T1
+    - httpx_probe     # T1
+  guardrail:
+    max_tier: 1
+  boards:
+    - engagement
+    - agent
+  crew: recon
+  allow_delegation: false
+  verbose: true

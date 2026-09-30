@@ -1,0 +1,14 @@
+Package: kali-ai-native-shell
+Version: 0.1.0
+Section: metapackages
+Priority: optional
+Architecture: all
+Depends: kali-ai-native-core, nodejs, npm, libwebkit2gtk-4.1-0
+Maintainer: AI-native Kali project <maintainer@example.invalid>
+Description: AI-native Kali - Hermes desktop shell as the native session
+ Installs Hermes Desktop as the Wayland/X session itself rather than as an
+ application: taskbar, launcher, notification centre, file manager and the
+ native Kanban surfaces (taskbar widget, desktop overlay, card drawer).
+ .
+ Registers /usr/share/wayland-sessions/hermes-shell.desktop so the display
+ manager offers "Hermes AI Desktop" at login.

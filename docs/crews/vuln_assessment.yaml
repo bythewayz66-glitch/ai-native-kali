@@ -1,0 +1,46 @@
+version: "1.0"
+
+# Vulnerability-assessment crew - the gated crew.
+# Mirrors agent-runtime/agent_runtime/crews.py (CREWS["vuln-assessment"]).
+# tests/test_crew_yaml.py asserts equivalence with the Python registry.
+
+vuln-assessment:
+  name: vuln-assessment
+  display_name: Vulnerability Assessment Crew
+  goal: >
+    Identify and triage vulnerabilities on assets already confirmed in scope.
+  process: sequential
+
+  boards:
+    - engagement
+
+  # T2 is intrusive, which is why every T2 step below carries requires_approval.
+  max_tier: 2
+
+  # Ordered roles, matching CrewDef.steps.
+  agents:
+    - web-specialist
+    - vuln-analyst
+
+  tasks:
+    - http_fingerprint
+    - web_server_scan
+    - triage_findings
+
+  # The human-in-the-loop gate, bound to the card's own approval state.
+  # This is the part that makes T2 work safe rather than fast.
+  human_in_the_loop:
+    mechanism: card_approval
+    trigger: "any task with guardrail_tier >= 2"
+    request:
+      opens: "POST /api/cards/{card_id}/approvals"
+      card_state: "stays in Assigned - the work is parked, not queued"
+      surfaces_in: "hermes shell notification feed + board card"
+    decision:
+      approved: "event card.approval.decided(status=approved) -> socket re-claims the card"
+      rejected: "recorded on the card; the step is skipped; no re-claim"
+      timeout: "GATE_TIMEOUT (default 120s) -> outcome=timeout -> step blocked, not run"
+    invariants:
+      - "an approval is read from the card, so a crew cannot assert it was cleared"
+      - "the tool layer re-checks approval independently of the bridge"
+      - "rejection does not re-open the gate (that would loop)"

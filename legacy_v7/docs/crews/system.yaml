@@ -1,0 +1,25 @@
+version: "1.0"
+
+# System maintenance crew - CrewAI spec. Mirrors agent-runtime/agent_runtime/crews.py
+# (CREWS["system"]) and roles.py. tests/test_crew_yaml.py asserts this file and the
+# Python registry agree, so the two cannot drift apart silently.
+
+system:
+  name: system
+  display_name: System Maintenance Crew
+  goal: >
+    Keep the host itself healthy.
+  process: sequential
+
+  boards:
+    - system
+
+  # T0: system hygiene runs in dry-run unless a card explicitly asks otherwise
+  # AND an operator approves it. The default path touches nothing.
+  max_tier: 0
+
+  agents:
+    - system-agent
+
+  tasks:
+    - os_hygiene

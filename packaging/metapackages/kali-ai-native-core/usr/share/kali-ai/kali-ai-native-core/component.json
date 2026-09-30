@@ -1,0 +1,20 @@
+{
+  "package": "kali-ai-native-core",
+  "version": "0.1.0",
+  "components": ["kanban-core", "tool-frontends", "observability", "memory-store"],
+  "install_root": "/opt/ai-native-kali",
+  "services": [
+    {"name": "kali-ai-kanban", "component": "kanban-core", "port": 8081, "unit": "kali-ai-kanban.service"},
+    {"name": "kali-ai-observability", "component": "observability", "port": 8084, "unit": "kali-ai-observability.service"},
+    {"name": "kali-ai-tools", "component": "tool-frontends", "port": 8083},
+    {"name": "kali-ai-memory", "component": "memory-store", "port": 8087}
+  ],
+  "safety": {
+    "dry_run_default": true,
+    "live_execution_env": "TOOLS_LIVE=1",
+    "live_unlock_env": "TOOLS_UNLOCK",
+    "audit_log": "hash-chained",
+    "approval_gates": "T2+ and every requires_approval tool"
+  },
+  "bind": "127.0.0.1"
+}

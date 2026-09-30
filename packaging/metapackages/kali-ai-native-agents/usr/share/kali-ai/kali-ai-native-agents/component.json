@@ -1,0 +1,21 @@
+{
+  "package": "kali-ai-native-agents",
+  "version": "0.1.0",
+  "components": ["agent-runtime", "board-ui"],
+  "install_root": "/opt/ai-native-kali",
+  "services": [
+    {"name": "kali-ai-agents", "component": "agent-runtime", "port": 8082},
+    {"name": "kali-ai-board", "component": "board-ui", "port": 8086}
+  ],
+  "crews": ["recon", "vuln-assessment"],
+  "roles": 9,
+  "human_in_the_loop": {
+    "gate": "card state: pending_approval in the Review column",
+    "binding": "crewai @human_feedback -> kanban approval gate",
+    "model_backed_crew_requires": "OLLAMA_HOST or the deterministic local runner as fallback"
+  },
+  "memory": {
+    "recall_before_run": true,
+    "optional": "MEMORY_ENABLED"
+  }
+}

@@ -1,0 +1,20 @@
+# Reporting crew tasks. One task per CrewStep in CREWS["reporting"].
+# Tiers are cross-checked against the tool registry, not trusted from this file.
+
+assemble_report:
+  description: >
+    Assemble the engagement report for {target} from the card trace. For every
+    finding, cite the card step and the tool output that produced it. State
+    explicitly which checks were run, which returned nothing, and which were
+    never run - an absent finding and an untested hypothesis must not read the
+    same. Do not introduce a finding that no step in the trace supports.
+  expected_output: >
+    A report with: scope and authorisation statement, method, findings ranked by
+    severity with evidence references, remediation guidance per finding, and an
+    explicit coverage section listing untested areas.
+  agent: report-writer
+  tools: []
+  guardrail_tier: 0
+  requires_approval: false
+  inputs:
+    - target

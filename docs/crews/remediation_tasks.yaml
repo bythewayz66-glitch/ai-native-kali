@@ -1,0 +1,26 @@
+# Remediation crew tasks. One task per CrewStep in CREWS["remediation"].
+# Tiers are cross-checked against the tool registry, not trusted from this file.
+
+verify_remediation:
+  description: >
+    Re-check the finding on {target} and decide whether it is closed. Confirm the
+    patch level, whether the exposed service is still reachable, whether a
+    firewall rule now blocks it, and whether the integrity baseline still matches.
+    Work only on the narrowed scope the sub-card carries - never the whole
+    engagement. Report the finding as closed only when the re-check shows the
+    exposure is gone; otherwise say plainly what is still open.
+  expected_output: >
+    A closure verdict per finding: closed / still-open / cannot-verify, with the
+    evidence for each (patch version observed, port state, rule matched, baseline
+    hash) and an explicit list of what could not be checked.
+  agent: remediation-specialist
+  tools:
+    - patch_level_check
+    - service_exposure_check
+    - firewall_audit
+    - integrity_baseline
+  guardrail_tier: 1
+  requires_approval: false
+  inputs:
+    - target
+    - finding

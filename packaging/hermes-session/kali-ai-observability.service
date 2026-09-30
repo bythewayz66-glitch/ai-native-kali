@@ -1,0 +1,18 @@
+[Unit]
+Description=AI-native Kali - observability collector
+After=kali-ai-kanban.service
+PartOf=kali-ai.target
+
+[Service]
+Type=simple
+Environment=OBS_PORT=8084
+Environment=KANBAN_URL=http://127.0.0.1:8081
+Environment=TOOLS_URL=http://127.0.0.1:8083
+ExecStart=/usr/bin/python3 -m uvicorn observability.server:app --host 127.0.0.1 --port 8084
+Restart=on-failure
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+
+[Install]
+WantedBy=kali-ai.target

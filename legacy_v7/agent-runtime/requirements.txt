@@ -1,0 +1,11 @@
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.6
+httpx>=0.27
+pytest>=8
+# Optional: install to switch the adapter from the deterministic local runtime
+# to real CrewAI agents. Everything works without it - the adapter imports
+# crewai lazily and falls back to the deterministic executor when it is absent,
+# so CI stays key-free and GPU-free. Pinned to a known-good major so a future
+# release cannot silently change the Agent/Task/Crew surface the adapter uses.
+crewai>=0.60,<1.0

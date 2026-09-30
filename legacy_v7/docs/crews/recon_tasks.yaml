@@ -1,0 +1,23 @@
+# Recon crew tasks. One task per CrewStep in CREWS["recon"].
+# Tiers are cross-checked against the tool registry, not trusted from this file.
+
+surface_enumeration:
+  description: >
+    Enumerate ownership, DNS records and reachable services on {target}. Begin
+    passive: WHOIS registration, then DNS records (A, AAAA, MX, TXT, NS, CNAME).
+    Only then probe for reachable services. Never scan beyond the ports the card
+    authorized, and never attempt service exploitation.
+  expected_output: >
+    A structured surface map: registrar and registration dates, DNS records by
+    type, reachable services with port/state/service, plus an explicit list of
+    what was NOT tested.
+  agent: recon-specialist
+  tools:
+    - whois_lookup
+    - dns_lookup
+    - nmap_scan
+    - httpx_probe
+  guardrail_tier: 1
+  requires_approval: false
+  inputs:
+    - target

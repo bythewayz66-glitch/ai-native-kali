@@ -1,0 +1,16 @@
+Package: kali-ai-native-core
+Version: 0.1.0
+Section: metapackages
+Priority: optional
+Architecture: all
+Depends: python3, python3-venv, python3-pip, sqlite3, systemd
+Recommends: kali-ai-native-shell, kali-ai-native-agents
+Maintainer: AI-native Kali project <maintainer@example.invalid>
+Description: AI-native Kali - core runtime (Kanban, tools, observability)
+ Installs the orchestration backbone of AI-native Kali: the Kanban core
+ service, the guardrailed Kali tool frontend layer and the observability
+ collector. Every unit of work on the system becomes a card on a board, and
+ every tool invocation is written to a hash-chained audit log.
+ .
+ Phase 1 scope: services run locally on 127.0.0.1 and execute tools in
+ dry-run mode by default.

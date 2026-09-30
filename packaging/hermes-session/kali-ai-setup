@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# First-boot AI setup wizard (blueprint section 07, step 6).
+# Phase 1 stub: records mode/hardware choices and leaves the services disabled
+# until the operator has actually picked a model backend.
+set -euo pipefail
+
+STATE=/var/lib/kali-ai/setup.json
+
+if [ -f "$STATE" ]; then
+  echo "[kali-ai-setup] already configured: $STATE"
+  exit 0
+fi
+
+echo "AI-native Kali - first boot"
+echo "==========================="
+echo "1) offline   - local model only (llama.cpp / ollama), no egress"
+echo "2) hybrid    - local for tool-calling, cloud for long-context reasoning"
+echo "3) cloud     - cloud models only"
+read -rp "choice [1-3] (default 1): " mode
+mode=${mode:-1}
+
+case "$mode" in
+  1) model_mode=offline ;;
+  2) model_mode=hybrid ;;
+  3) model_mode=cloud ;;
+  *) echo "invalid choice" >&2; exit 1 ;;
+esac
+
+install -d -m 0700 /var/lib/kali-ai
+cat > "$STATE" <<JSON
+{
+  "model_mode": "$model_mode",
+  "configured_at": "$(date -Is)",
+  "live_tool_execution": false,
+  "max_tool_tier": 0
+}
+JSON
+chmod 0600 "$STATE"
+
+echo "[kali-ai-setup] wrote $STATE (model_mode=$model_mode)"
+echo "[kali-ai-setup] live tool execution stays OFF and max tier 0 until"
+echo "                 an operator unlocks it per tool (TOOLS_UNLOCK)."

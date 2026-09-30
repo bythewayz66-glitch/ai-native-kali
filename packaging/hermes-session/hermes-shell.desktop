@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Hermes AI Desktop
+Comment=AI-native Kali session: Kanban-orchestrated desktop shell
+Exec=/usr/bin/hermes-shell-session
+# TryExec makes the greeter skip this session when the binary is absent, instead
+# of offering a session that fails to start. The binary is installed by
+# packaging/build.sh and packaging/build-iso.sh (usr/bin/hermes-shell-session).
+TryExec=/usr/bin/hermes-shell-session
+DesktopNames=Hermes
+X-GNOME-WMName=hermes-shell
+X-GNOME-Autostart-Phase=WindowManager
+X-KDE-StartupWM=hermes-shell

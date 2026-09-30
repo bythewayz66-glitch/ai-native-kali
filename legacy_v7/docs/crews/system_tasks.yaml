@@ -1,0 +1,19 @@
+# System maintenance crew tasks. One task per CrewStep in CREWS["system"].
+# Tiers are cross-checked against the tool registry, not trusted from this file.
+
+os_hygiene:
+  description: >
+    Inspect host hygiene on {target}: log volume and rotation state, free disk,
+    pending package updates and backup recency. Report what would be done. Run
+    only in dry-run - this task never applies a change, regardless of what the
+    card asks for.
+  expected_output: >
+    A hygiene report: log sizes and rotation status, disk usage, pending updates
+    with counts, backup age, plus an explicit statement that nothing was applied.
+  agent: system-agent
+  tools:
+    - log_rotate
+  guardrail_tier: 0
+  requires_approval: false
+  inputs:
+    - target

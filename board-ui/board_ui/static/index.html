@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hermes Kanban — AI-native Kali</title>
+<style>
+  :root{
+    --bg:#0b0f14; --bg-2:#0f151d; --panel:#121a24; --panel-2:#16202c;
+    --line:#1e2b3a; --line-2:#27384b;
+    --txt:#dfe8f2; --txt-dim:#93a4b8; --txt-mute:#6f7e91;
+    --acc:#4f9cf0; --ok:#3fbf8f; --warn:#f2b544; --bad:#f0645a; --vio:#b07cf0;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:14px}
+  a{color:var(--acc)}
+  .wrap{display:flex;flex-direction:column;min-height:100vh}
+
+  /* ---------------------------------------------------------- top bar */
+  header{
+    border-bottom:1px solid var(--line);background:linear-gradient(180deg,#0d131a,#0b0f14);
+    padding:12px 18px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;position:sticky;top:0;z-index:30;
+  }
+  .brand{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-weight:600;letter-spacing:.4px}
+  .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--ok);box-shadow:0 0 10px var(--ok)}
+  .brand small{color:var(--txt-mute);font-weight:400}
+  header .spacer{flex:1}
+  select,input,button,textarea{font-family:var(--mono);font-size:12.5px;color:var(--txt);background:var(--panel);border:1px solid var(--line-2);border-radius:6px;padding:6px 9px}
+  select:focus,input:focus,textarea:focus{outline:none;border-color:var(--acc)}
+  button{cursor:pointer;transition:.15s}
+  button:hover{border-color:var(--acc);background:var(--panel-2)}
+  button.primary{background:#15304d;border-color:#2c5f96;color:#cfe4ff}
+  button.primary:hover{background:#1b3d61}
+  button.ok{border-color:#2c6b57;color:#bff0dd}
+  button.bad{border-color:#7a3a35;color:#ffd6d2}
+  .pill{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11.5px;
+        padding:4px 9px;border-radius:999px;border:1px solid var(--line-2);background:var(--panel);color:var(--txt-dim)}
+  .pill.ok{border-color:#2c6b57;color:#8fe3c4}
+  .pill.bad{border-color:#7a3a35;color:#ffb4ad}
+  .pill.warn{border-color:#6b5a2c;color:#f7d68f}
+  .pill .led{width:7px;height:7px;border-radius:50%;background:currentColor}
+
+  /* ---------------------------------------------------------- stats */
+  .stats{display:flex;gap:16px;padding:10px 18px;border-bottom:1px solid var(--line);background:var(--bg-2);
+         font-family:var(--mono);font-size:11.5px;color:var(--txt-dim);flex-wrap:wrap;align-items:center}
+  .stats b{color:var(--txt);font-weight:600}
+  .stats .sep{color:var(--line-2)}
+
+  /* ---------------------------------------------------------- boards */
+  .boards{display:flex;gap:14px;padding:16px 18px 28px;overflow-x:auto;align-items:flex-start;flex:1}
+  .col{min-width:268px;width:268px;flex:0 0 268px;background:var(--bg-2);border:1px solid var(--line);border-radius:10px;display:flex;flex-direction:column;max-height:calc(100vh - 190px)}
+  .col-head{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg-2);border-radius:10px 10px 0 0;z-index:5}
+  .col-head .name{font-family:var(--mono);font-size:12px;font-weight:600;letter-spacing:.5px;text-transform:uppercase}
+  .col-head .bar{width:3px;height:14px;border-radius:2px;background:var(--txt-mute)}
+  .col-head .count{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--txt-mute);
+                   border:1px solid var(--line-2);border-radius:999px;padding:1px 7px}
+  .col-body{padding:10px;display:flex;flex-direction:column;gap:9px;overflow-y:auto;min-height:120px;transition:background .15s,box-shadow .15s}
+  .col.dragover .col-body{background:#101d2b;box-shadow:inset 0 0 0 1px var(--acc)}
+  .col.dragover.illegal .col-body{background:#221012;box-shadow:inset 0 0 0 1px var(--bad)}
+  .col-hint{padding:0 12px 10px;font-family:var(--mono);font-size:10.5px;color:var(--txt-mute)}
+
+  /* ---------------------------------------------------------- cards */
+  .card{background:var(--panel);border:1px solid var(--line-2);border-radius:8px;padding:9px 10px 8px 12px;
+        cursor:grab;position:relative;transition:.15s;border-left:3px solid var(--txt-mute)}
+  .card:hover{border-color:var(--acc);background:var(--panel-2)}
+  .card.dragging{opacity:.4;cursor:grabbing}
+  .card.killed{opacity:.55;border-left-color:var(--bad)}
+  .card .title{font-size:13px;font-weight:600;line-height:1.35;margin:0 0 6px}
+  .card .meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-family:var(--mono);font-size:10.5px;color:var(--txt-mute)}
+  .chip{border:1px solid var(--line-2);border-radius:4px;padding:1px 5px;background:#0d141c}
+  .chip.t0{color:#8b9aad}.chip.t1{color:#7fb8f2}.chip.t2{color:#f2c46a}.chip.t3{color:#ff8f85}
+  .chip.hot{border-color:#7a3a35;color:#ffb4ad}
+  .chip.gate{border-color:#6b5a2c;color:#f7d68f}
+  .chip.who{color:var(--txt-dim)}
+  .card .urgent{position:absolute;right:8px;top:8px;width:7px;height:7px;border-radius:50%;background:var(--warn)}
+  .card .urgent.crit{background:var(--bad)}
+
+  /* ---------------------------------------------------------- drawer */
+  .drawer{position:fixed;top:0;right:0;height:100vh;width:min(460px,92vw);background:var(--bg-2);
+          border-left:1px solid var(--line-2);transform:translateX(102%);transition:transform .22s ease;z-index:60;
+          display:flex;flex-direction:column;box-shadow:-18px 0 40px rgba(0,0,0,.5)}
+  .drawer.open{transform:translateX(0)}
+  .drawer-head{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;align-items:flex-start;gap:10px}
+  .drawer-head h2{margin:0;font-size:15px;line-height:1.35}
+  .drawer-head .id{font-family:var(--mono);font-size:11px;color:var(--txt-mute)}
+  .drawer-head button{margin-left:auto}
+  .drawer-body{padding:14px 16px 40px;overflow-y:auto;flex:1}
+  .drawer h3{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--txt-mute);
+             margin:18px 0 8px;padding-bottom:5px;border-bottom:1px solid var(--line)}
+  .kv{display:grid;grid-template-columns:112px 1fr;gap:6px 10px;font-family:var(--mono);font-size:11.5px;color:var(--txt-dim)}
+  .kv b{color:var(--txt-mute);font-weight:400}
+  .moves{display:flex;gap:7px;flex-wrap:wrap}
+  .reason{font-family:var(--mono);font-size:11px;color:#ffb4ad;background:#1d1113;border:1px solid #5c2b27;
+          border-radius:6px;padding:7px 9px;margin-top:7px;line-height:1.5}
+  .entry{border-left:2px solid var(--line-2);padding:4px 0 4px 10px;margin-bottom:9px}
+  .entry .l1{font-family:var(--mono);font-size:11px;color:var(--txt-dim);display:flex;gap:8px;flex-wrap:wrap}
+  .entry .l2{font-family:var(--mono);font-size:10.5px;color:var(--txt-mute);margin-top:3px;word-break:break-all}
+  .gate{border:1px solid #6b5a2c;background:#1b1809;border-radius:7px;padding:10px;margin-bottom:9px}
+  .gate .r{font-size:12px;line-height:1.45;margin-bottom:7px}
+  .gate .row{display:flex;gap:7px}
+  .empty{font-family:var(--mono);font-size:11.5px;color:var(--txt-mute);padding:10px;text-align:center;border:1px dashed var(--line-2);border-radius:7px}
+
+  /* ---------------------------------------------------------- toast */
+  .toast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,140%);z-index:80;width:min(620px,92vw);
+         background:#1b1113;border:1px solid #6b2f2a;border-radius:9px;padding:12px 14px;
+         box-shadow:0 14px 40px rgba(0,0,0,.55);transition:transform .24s ease}
+  .toast.show{transform:translate(-50%,0)}
+  .toast.ok{background:#0f1c17;border-color:#2c6b57}
+  .toast .t1{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:#ffb4ad;margin-bottom:6px}
+  .toast.ok .t1{color:#8fe3c4}
+  .toast ul{margin:0;padding-left:18px;font-family:var(--mono);font-size:11.5px;color:#ffd6d2;line-height:1.6}
+  .toast.ok ul{color:#bff0dd}
+
+  /* ---------------------------------------------------------- ticker */
+  .ticker{border-top:1px solid var(--line);background:#0a0e13;padding:7px 18px;font-family:var(--mono);
+          font-size:11px;color:var(--txt-mute);display:flex;gap:12px;align-items:center;white-space:nowrap;overflow:hidden}
+  .ticker .ev{color:var(--txt-dim)}
+  .ticker .ev i{color:var(--acc);font-style:normal}
+  .modal{position:fixed;inset:0;background:rgba(4,7,10,.78);display:none;align-items:center;justify-content:center;z-index:70}
+  .modal.open{display:flex}
+  .modal .box{background:var(--bg-2);border:1px solid var(--line-2);border-radius:10px;padding:18px;width:min(520px,92vw)}
+  .modal h3{margin:0 0 12px;font-size:14px}
+  .modal label{display:block;font-family:var(--mono);font-size:11px;color:var(--txt-mute);margin:10px 0 4px}
+  .modal input,.modal textarea,.modal select{width:100%}
+  .modal .row{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+  .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand"><span class="dot" id="dot"></span>HERMES<span style="color:var(--txt-mute)">·</span>KANBAN
+      <small id="sub">connecting…</small>
+    </div>
+    <div class="spacer"></div>
+    <span class="pill" id="wsPill"><span class="led"></span><span id="wsText">socket idle</span></span>
+    <span class="pill warn" id="modePill">mode: —</span>
+    <select id="boardSel" aria-label="Board"></select>
+    <button id="addBtn" class="primary">+ New card</button>
+    <button id="refreshBtn">Refresh</button>
+  </header>
+
+  <div class="stats">
+    <span>cards <b id="sTotal">0</b></span><span class="sep">|</span>
+    <span>running <b id="sRunning">0</b></span><span class="sep">|</span>
+    <span>review <b id="sReview">0</b></span><span class="sep">|</span>
+    <span>blocked <b id="sBlocked">0</b></span><span class="sep">|</span>
+    <span>gated <b id="sGated">0</b></span><span class="sep">|</span>
+    <span>events <b id="sEvents">0</b></span><span class="sep">|</span>
+    <span id="sGuard" style="color:var(--txt-mute)">drag a card between columns</span>
+  </div>
+
+  <div class="boards" id="boards"></div>
+  <div class="ticker"><span>bus</span><span class="ev" id="ticker"><i>waiting for column transitions…</i></span></div>
+</div>
+
+<aside class="drawer" id="drawer" aria-hidden="true">
+  <div class="drawer-head">
+    <div><h2 id="dTitle">—</h2><div class="id" id="dId">—</div></div>
+    <button onclick="Board.closeDrawer()">Close</button>
+  </div>
+  <div class="drawer-body" id="dBody"></div>
+</aside>
+
+<div class="toast" id="toast"><div class="t1" id="toastTitle">Move refused</div><ul id="toastList"></ul></div>
+
+<div class="modal" id="modal">
+  <div class="box">
+    <h3>New card</h3>
+    <label for="nTitle">Title</label>
+    <input id="nTitle" placeholder="Recon scan of the staging subnet">
+    <label for="nDesc">Description</label>
+    <textarea id="nDesc" rows="3" placeholder="What should the crew do, and within which scope?"></textarea>
+    <label for="nTools">Tool bindings (comma-separated)</label>
+    <input id="nTools" value="nmap_scan" placeholder="nmap_scan, httpx_probe">
+    <label for="nTarget">Target (used for each binding)</label>
+    <input id="nTarget" placeholder="scanme.nmap.org">
+    <div class="row">
+      <button onclick="Board.closeModal()">Cancel</button>
+      <button class="primary" onclick="Board.createCard()">Create in Backlog</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import * as L from './static/board_logic.mjs';
+
+const $ = (id) => document.getElementById(id);
+const COLUMNS = L.COLUMNS;
+
+const state = {
+  config: null, boards: [], boardId: null, cards: [], selected: null,
+  socket: null, connected: false, attempts: 0, polls: 0, events: 0,
+  ticker: [], lastPollAt: 0,
+};
+
+/* ------------------------------------------------------------ transport */
+async function configure() {
+  state.config = await (await fetch('/config')).json();
+}
+
+function render() {
+  const grouped = L.groupByColumn(state.cards);
+  const sum = L.summarise(state.cards);
+  $('sTotal').textContent = sum.total; $('sRunning').textContent = sum.running;
+  $('sReview').textContent = sum.review; $('sBlocked').textContent = sum.blocked;
+  $('sGated').textContent = sum.gated; $('sEvents').textContent = state.events;
+
+  const host = $('boards'); host.innerHTML = '';
+  for (const column of COLUMNS) {
+    const col = document.createElement('section');
+    col.className = 'col'; col.dataset.column = column;
+    col.innerHTML = `
+      <div class="col-head">
+        <span class="bar" style="background:${L.COLUMN_ACCENTS[column]}"></span>
+        <span class="name">${column}</span>
+        <span class="count">${grouped[column].length}</span>
+      </div>
+      <div class="col-body">${
+        grouped[column].map(cardHtml).join('') ||
+        '<div class="empty">— empty —</div>'
+      }</div>
+      <div class="col-hint">accepts: ${L.legalColumns(column).join(' ') || 'terminal'}</div>`;
+    wireColumn(col);
+    host.appendChild(col);
+  }
+  for (const el of host.querySelectorAll('.card')) wireCard(el);
+}
+
+function cardHtml(card) {
+  const tier = card.max_tier ?? 1;
+  const chips = [];
+  chips.push(`<span class="chip t${tier}">T${tier}</span>`);
+  if (card.assignee) chips.push(`<span class="chip who">@${escapeHtml(card.assignee)}</span>`);
+  if (card.crew) chips.push(`<span class="chip">${escapeHtml(card.crew)}</span>`);
+  if (card.pending_approval) chips.push('<span class="chip gate">gate pending</span>');
+  if (card.priority && card.priority !== 'normal') chips.push(`<span class="chip hot">${escapeHtml(card.priority)}</span>`);
+  const tools = (card.tools || []).length;
+  chips.push(`<span class="chip">${tools} tool${tools === 1 ? '' : 's'}</span>`);
+  const flag = card.priority === 'critical' || card.priority === 'high';
+  return `<article class="card${card.killed ? ' killed' : ''}" draggable="true" data-card="${escapeHtml(card.card_id)}"
+            style="border-left-color:${card.killed ? 'var(--bad)' : L.COLUMN_ACCENTS[card.column]}">
+      ${flag ? `<span class="urgent${card.priority === 'critical' ? ' crit' : ''}"></span>` : ''}
+      <p class="title">${escapeHtml(card.title || '(untitled)')}</p>
+      <div class="meta">${chips.join('')}</div>
+    </article>`;
+}
+
+function cardById(id) { return state.cards.find((c) => c.card_id === id); }
+
+/* ------------------------------------------------------------- dragging */
+let draggingId = null;
+
+function wireCard(el) {
+  el.addEventListener('dragstart', (ev) => {
+    draggingId = el.dataset.card;
+    el.classList.add('dragging');
+    ev.dataTransfer.effectAllowed = 'move';
+    // Firefox requires data to be set for a drag to start.
+    ev.dataTransfer.setData('text/plain', el.dataset.card);
+  });
+  el.addEventListener('dragend', () => { el.classList.remove('dragging'); draggingId = null; clearDragStyles(); });
+  el.addEventListener('click', () => openDrawer(el.dataset.card));
+}
+
+function wireColumn(col) {
+  col.addEventListener('dragover', (ev) => {
+    ev.preventDefault();
+    const card = draggingId ? cardById(draggingId) : null;
+    if (!card) return;
+    const verdict = L.canDrop(card, col.dataset.column);
+    col.classList.add('dragover');
+    col.classList.toggle('illegal', !verdict.ok);
+    ev.dataTransfer.dropEffect = verdict.ok ? 'move' : 'none';
+  });
+  col.addEventListener('dragleave', () => col.classList.remove('dragover', 'illegal'));
+  col.addEventListener('drop', (ev) => {
+    ev.preventDefault();
+    const id = draggingId || ev.dataTransfer.getData('text/plain');
+    const target = col.dataset.column;
+    clearDragStyles();
+    if (id) attemptMove(id, target);
+  });
+}
+
+function clearDragStyles() {
+  for (const el of document.querySelectorAll('.col')) el.classList.remove('dragover', 'illegal');
+}
+
+/* --------------------------------------------------------------- moves */
+async function attemptMove(cardId, toColumn) {
+  const card = cardById(cardId);
+  if (!card) return;
+
+  // 1. Local pre-check purely for instant feedback.
+  const local = L.canDrop(card, toColumn);
+  if (!local.ok) {
+    toast(false, [`${card.column} → ${toColumn}`, local.message]);
+    return;
+  }
+
+  // 2. The authoritative check - the engine decides, not the UI.
+  try {
+    const res = await fetch(`${cfg().kanban_url}/api/cards/${cardId}/can-move`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to_column: toColumn }),
+    });
+    const verdict = await res.json();
+    // The engine answers {ok, reasons} - not {allowed}. Checking the wrong key
+    // here would make this pre-flight a no-op and send every illegal drop
+    // straight at /move, so the guard would only ever fire server-side.
+    if (verdict.ok === false) {
+      toast(false, L.refusalReasons(verdict).join(' '));
+      return false;
+    }
+  } catch (err) {
+    // Falling through on a network error would let an unverified move through,
+    // so report it and stop - the board is the authority, not this page.
+    toast(false, [`Cannot reach the board to verify the move: ${err.message}`]);
+    return;
+  }
+
+  // 3. Commit.
+  const res = await fetch(`${cfg().kanban_url}/api/cards/${cardId}/move`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ to_column: toColumn, actor: 'hermes-shell', actor_is_agent: false, note: 'drag-and-drop in the shell' }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) { toast(false, L.refusalReasons(body)); return; }
+
+  if (body.card) state.cards = state.cards.map((c) => (c.card_id === cardId ? body.card : c));
+  else state.cards = state.cards.map((c) => (c.card_id === cardId ? { ...c, column: toColumn } : c));
+  render();
+  toast(true, [`Moved to ${toColumn}.`]);
+  if (state.selected === cardId) openDrawer(cardId);
+}
+
+function cfg() { return state.config || { kanban_url: '', ws_url: '' }; }
+
+/* --------------------------------------------------------------- toast */
+let toastTimer = null;
+function toast(ok, lines) {
+  const el = $('toast');
+  el.classList.toggle('ok', ok);
+  $('toastTitle').textContent = ok ? 'Applied' : 'Move refused by the board';
+  $('toastList').innerHTML = lines.map((l) => `<li>${escapeHtml(String(l))}</li>`).join('');
+  el.classList.add('show');
+  $('sGuard').textContent = ok ? 'last move applied' : 'last move refused';
+  $('sGuard').style.color = ok ? 'var(--ok)' : 'var(--bad)';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), ok ? 2600 : 6500);
+}
+
+/* -------------------------------------------------------------- drawer */
+async function openDrawer(cardId) {
+  state.selected = cardId;
+  const card = cardById(cardId);
+  $('drawer').classList.add('open');
+  $('drawer').setAttribute('aria-hidden', 'false');
+  $('dTitle').textContent = card ? card.title : cardId;
+  $('dId').textContent = cardId;
+  $('dBody').innerHTML = '<div class="empty">loading…</div>';
+
+  let detail = card, replay = null;
+  try {
+    const res = await fetch(`${cfg().kanban_url}/api/cards/${cardId}`);
+    if (res.ok) detail = await res.json();
+  } catch { /* fall back to the list copy */ }
+  try {
+    const res = await fetch(`${cfg().kanban_url}/api/cards/${cardId}/replay`);
+    if (res.ok) replay = await res.json();
+  } catch { /* replay is a bonus */ }
+
+  const next = L.legalColumns(detail.column).map((col) => {
+    const verdict = L.canDrop(detail, col);
+    return `<button data-move="${col}" ${verdict.ok ? '' : 'disabled title="' + escapeHtml(verdict.message) + '"'}
+              class="${verdict.ok ? '' : ''}">→ ${col}</button>`;
+  }).join('') || '<span class="empty" style="flex:1">terminal column</span>';
+
+  const approvals = (detail.approvals || []).map((a) => `
+    <div class="gate">
+      <div class="r"><b>${escapeHtml(a.status)}</b> — ${escapeHtml(a.reason || '')}</div>
+      <div class="kv"><b>tool</b><span>${escapeHtml(a.tool || '—')} · T${a.tier ?? '?'}</span>
+        <b>asked by</b><span>${escapeHtml(a.requested_by || '—')}</span>
+        <b>decided by</b><span>${escapeHtml(a.decided_by || '—')}</span></div>
+      ${a.status === 'pending' ? `<div class="row" style="margin-top:9px">
+        <button class="ok" data-approve="${a.id}">Approve</button>
+        <button class="bad" data-reject="${a.id}">Reject</button></div>` : ''}
+    </div>`).join('') || '<div class="empty">no approval gates on this card</div>';
+
+  const tools = (detail.tools || []).map((t) =>
+    `<div class="entry"><div class="l1"><span class="chip t${t.tier}">T${t.tier}</span>${escapeHtml(t.name)}</div>
+       <div class="l2">${escapeHtml(JSON.stringify(t.args || {}))}</div></div>`).join('') ||
+    '<div class="empty">no tool bindings</div>';
+
+  const traces = (detail.traces || []).slice(-14).reverse().map((t) => `
+    <div class="entry"><div class="l1"><span>${escapeHtml(t.kind || 'trace')}</span>
+      <span style="color:var(--txt-mute)">${escapeHtml(t.agent || '')}</span></div>
+      <div class="l2">${escapeHtml(t.message || '')}</div></div>`).join('') ||
+    '<div class="empty">no traces yet</div>';
+
+  const history = replay && replay.events
+    ? replay.events.slice(-14).reverse().map((e) => `
+        <div class="entry"><div class="l1"><span>${escapeHtml(e.type || '')}</span>
+          <span style="color:var(--txt-mute)">${escapeHtml(e.from_column || '?')} → ${escapeHtml(e.to_column || '?')}</span></div>
+          <div class="l2">${escapeHtml(e.actor || '')} ${escapeHtml(e.note || '')}</div></div>`).join('')
+    : '<div class="empty">no history</div>';
+
+  $('dBody').innerHTML = `
+    <h3>State</h3>
+    <div class="kv">
+      <b>column</b><span>${escapeHtml(detail.column)} ${detail.killed ? '(killed)' : ''}</span>
+      <b>board</b><span>${escapeHtml(detail.board_id || '—')}</span>
+      <b>assignee</b><span>${escapeHtml(detail.assignee || 'unassigned')}</span>
+      <b>crew</b><span>${escapeHtml(detail.crew || '—')}</span>
+      <b>priority</b><span>${escapeHtml(detail.priority || 'normal')}</span>
+      <b>max tier</b><span>T${detail.max_tier ?? '?'}</span>
+      <b>scope</b><span>${escapeHtml(detail.scope ? (detail.scope.targets || []).join(', ') || 'set' : 'none')}</span>
+    </div>
+    <h3>Move (server-validated)</h3>
+    <div class="moves" id="dMoves">${next}</div>
+    <div class="moves" style="margin-top:9px">
+      <button data-kill="${detail.card_id}">Kill card</button>
+      <button data-assign="${detail.card_id}">Assign to crew</button>
+    </div>
+    <h3>Approval gates</h3>${approvals}
+    <h3>Tool bindings</h3>${tools}
+    <h3>Traces</h3>${traces}
+    <h3>Transition history</h3>${history}`;
+
+  for (const btn of $('dBody').querySelectorAll('[data-move]')) {
+    btn.addEventListener('click', () => attemptMove(cardId, btn.dataset.move));
+  }
+  for (const btn of $('dBody').querySelectorAll('[data-approve]')) {
+    btn.addEventListener('click', () => decide(cardId, btn.dataset.approve, true));
+  }
+  for (const btn of $('dBody').querySelectorAll('[data-reject]')) {
+    btn.addEventListener('click', () => decide(cardId, btn.dataset.reject, false));
+  }
+  const killBtn = $('dBody').querySelector('[data-kill]');
+  if (killBtn) killBtn.addEventListener('click', () => kill(cardId));
+  const assignBtn = $('dBody').querySelector('[data-assign]');
+  if (assignBtn) assignBtn.addEventListener('click', () => assign(cardId));
+}
+
+function closeDrawer() {
+  $('drawer').classList.remove('open');
+  $('drawer').setAttribute('aria-hidden', 'true');
+  state.selected = null;
+}
+
+async function decide(cardId, approvalId, approved) {
+  const res = await fetch(`${cfg().kanban_url}/api/cards/${cardId}/approvals/${approvalId}/decide`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ approved, decided_by: 'bythewayz66', note: approved ? 'approved in the shell' : 'rejected in the shell' }),
+  });
+  if (!res.ok) { toast(false, L.refusalReasons(await res.json().catch(() => ({})))); return; }
+  toast(true, [`Gate ${approved ? 'approved' : 'rejected'} - the crew can proceed.`]);
+  await loadCards();
+  openDrawer(cardId);
+}
+
+async function kill(cardId) {
+  const res = await fetch(`${cfg().kanban_url}/api/cards/${cardId}/kill`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actor: 'bythewayz66', reason: 'stopped from the shell' }),
+  });
+  if (!res.ok) { toast(false, L.refusalReasons(await res.json().catch(() => ({})))); return; }
+  toast(true, ['Card killed - it is now frozen.']);
+  await loadCards(); openDrawer(cardId);
+}
+
+async function assign(cardId) {
+  const card = cardById(cardId);
+  const assignee = prompt('Assign to which agent?', card?.assignee || 'recon-specialist');
+  if (!assignee) return;
+  const res = await fetch(`${cfg().kanban_url}/api/cards/${cardId}/assign`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ assignee, crew: card?.crew || null, actor: 'bythewayz66' }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) { toast(false, L.refusalReasons(body)); return; }
+  toast(true, [`Assigned to ${assignee} - the desk can now pick it up.`]);
+  await loadCards(); openDrawer(cardId);
+}
+
+/* ------------------------------------------------------------ live bus */
+function pushTicker(text) {
+  state.ticker.unshift(text);
+  state.ticker = state.ticker.slice(0, 6);
+  $('ticker').innerHTML = state.ticker.map((t) => `<i>›</i> ${escapeHtml(t)}`).join(' &nbsp; ');
+}
+
+function connectSocket() {
+  const url = cfg().ws_url;
+  if (!url) return;
+  try { state.socket = new WebSocket(url); } catch { scheduleReconnect(); return; }
+
+  state.socket.addEventListener('open', () => {
+    state.connected = true; state.attempts = 0; setConn(true, 'socket live');
+    pushTicker('socket connected');
+    refreshPill();
+  });
+  state.socket.addEventListener('message', (ev) => {
+    let msg; try { msg = JSON.parse(ev.data); } catch { return; }
+    if (msg.kind === 'heartbeat') { setConn(true, 'socket live'); return; }
+    if (msg.kind === 'snapshot') { pushTicker(`snapshot: ${(msg.events || []).length} prior events`); return; }
+    if (msg.kind !== 'event' || !msg.event) return;
+    onEvent(msg.event);
+  });
+  state.socket.addEventListener('close', () => {
+    state.connected = false; setConn(false, 'socket down - polling'); scheduleReconnect();
+  });
+  state.socket.addEventListener('error', () => { try { state.socket.close(); } catch {} });
+}
+
+function scheduleReconnect() {
+  state.attempts += 1;
+  const base = cfg().reconnect_base_ms || 500;
+  const delay = Math.min(15000, base * Math.pow(2, Math.min(state.attempts, 6)));
+  setTimeout(() => { if (!state.connected) connectSocket(); }, delay);
+}
+
+function onEvent(event) {
+  state.events += 1;
+  const before = state.cards.length;
+  state.cards = L.applyEvent(state.cards, event);
+  if (event.type === 'card.moved') {
+    pushTicker(`${event.from_column || '?'} → ${event.to_column || '?'} · ${event.card_id}`);
+  } else if (event.type === 'card.created') {
+    pushTicker(`card created · ${event.card_id}`);
+  } else {
+    pushTicker(`${event.type} · ${event.card_id}`);
+  }
+  if (state.cards.length !== before || event.type) render();
+  if (state.selected === event.card_id) openDrawer(event.card_id);
+}
+
+function setConn(ok, text) {
+  $('dot').style.background = ok ? 'var(--ok)' : 'var(--warn)';
+  $('dot').style.boxShadow = `0 0 10px ${ok ? 'var(--ok)' : 'var(--warn)'}`;
+  $('wsPill').className = 'pill ' + (ok ? 'ok' : 'warn');
+  $('wsText').textContent = text;
+  $('sub').textContent = text;
+}
+
+function refreshPill() {
+  const polls = state.polls;
+  $('modePill').textContent = state.connected
+    ? `mode: socket · ${state.events} events`
+    : `mode: polling (${polls}) · ${state.attempts} retries`;
+  $('modePill').className = 'pill ' + (state.connected ? 'ok' : 'warn');
+}
+
+/* -------------------------------------------------------------- loading */
+async function loadBoards() {
+  const res = await fetch(`${cfg().kanban_url}/api/boards`);
+  const body = await res.json();
+  state.boards = body.boards || body || [];
+  const sel = $('boardSel');
+  sel.innerHTML = state.boards.map((b) =>
+    `<option value="${b.board_id}">${escapeHtml(b.name)} · ${escapeHtml(b.kind || '')}</option>`).join('');
+  if (state.boards.length) { state.boardId = state.boards[0].board_id; sel.value = state.boardId; }
+}
+
+async function loadCards() {
+  const q = state.boardId ? `?board_id=${encodeURIComponent(state.boardId)}` : '';
+  const res = await fetch(`${cfg().kanban_url}/api/cards${q}`);
+  const body = await res.json();
+  state.cards = body.cards || body || [];
+  state.lastPollAt = Date.now();
+  render(); refreshPill();
+}
+
+/* Fallback: poll only while the socket is not delivering. */
+function startPoller() {
+  const interval = cfg().poll_interval_ms || 4000;
+  setInterval(async () => {
+    if (state.connected) return;
+    try { state.polls += 1; await loadCards(); } catch { /* keep trying */ }
+  }, interval);
+}
+
+async function createCard() {
+  const title = $('nTitle').value.trim();
+  if (!title) { toast(false, ['A title is required.']); return; }
+  const tools = $('nTools').value.split(',').map((s) => s.trim()).filter(Boolean);
+  const target = $('nTarget').value.trim();
+  const scope = target ? { targets: [target], authorization_ref: 'shell-quick-add' } : null;
+  const res = await fetch(`${cfg().kanban_url}/api/cards`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      board_id: state.boardId, title,
+      description: $('nDesc').value.trim() || undefined,
+      scope,
+      tools: tools.map((name) => ({ name, args: target ? { target } : {} })),
+    }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) { toast(false, L.refusalReasons(body)); return; }
+  closeModal();
+  $('nTitle').value = ''; $('nDesc').value = ''; $('nTarget').value = '';
+  toast(true, [`Created ${body.card_id || 'card'} in Backlog.`]);
+  pushTicker(`card created by operator · ${body.card_id || ''}`);
+  await loadCards();
+}
+
+function openModal() { $('modal').classList.add('open'); $('nTitle').focus(); }
+function closeModal() { $('modal').classList.remove('open'); }
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (ch) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
+  ));
+}
+
+/* ----------------------------------------------------------------- boot */
+async function boot() {
+  await configure();
+  try { await loadBoards(); await loadCards(); }
+  catch (err) { toast(false, [`Cannot reach kanban-core at ${cfg().kanban_url}: ${err.message}`]); }
+  connectSocket();
+  startPoller();
+  setInterval(refreshPill, 1000);
+
+  $('boardSel').addEventListener('change', async (ev) => { state.boardId = ev.target.value; await loadCards(); });
+  $('refreshBtn').addEventListener('click', () => loadCards());
+  $('addBtn').addEventListener('click', openModal);
+  $('modal').addEventListener('click', (ev) => { if (ev.target === $('modal')) closeModal(); });
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') { closeModal(); closeDrawer(); }
+    if (ev.key === 'n' && !ev.metaKey && !ev.ctrlKey && document.activeElement.tagName !== 'INPUT'
+        && document.activeElement.tagName !== 'TEXTAREA') openModal();
+  });
+}
+
+const Board = { openDrawer, closeDrawer, createCard, closeModal, state, render };
+window.Board = Board;
+boot();
+</script>
+</body>
+</html>

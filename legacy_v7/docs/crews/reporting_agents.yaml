@@ -1,0 +1,25 @@
+# Reporting crew agents. Mirrors ROLE_REGISTRY in agent-runtime/agent_runtime/roles.py.
+#
+# `tools` and `guardrail.max_tier` are contracts, not suggestions: the runtime
+# refuses to bind a tool above the role ceiling, so a role cannot escalate itself
+# by editing a card.
+#
+# This role binds no tools at all. That is the point: the report is assembled from
+# the card's own trace, so there is no path by which writing a report could touch
+# a target.
+
+report-writer:
+  role: Report Writer
+  goal: >
+    Produce the deliverable: findings, evidence, impact, remediation.
+  backstory: >
+    Works from card traces and artifacts so every claim in the report is traceable.
+  tools: []
+  guardrail:
+    max_tier: 0
+  boards:
+    - engagement
+    - agent
+  crew: reporting
+  allow_delegation: false
+  verbose: true

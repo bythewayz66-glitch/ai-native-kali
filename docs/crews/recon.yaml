@@ -1,0 +1,29 @@
+version: "1.0"
+
+# Recon crew - CrewAI spec. Mirrors agent-runtime/agent_runtime/crews.py (CREWS["recon"])
+# and roles.py. tests/test_crew_yaml.py asserts this file and the Python registry
+# agree, so the two cannot drift apart silently.
+
+recon:
+  name: recon
+  display_name: Recon Crew
+  goal: >
+    Map the authorised attack surface: passive first, then low-impact active probing.
+  process: sequential
+
+  # Board kinds this crew serves (CrewDef.boards).
+  boards:
+    - engagement
+    - agent
+
+  # Highest guardrail tier any step in this crew may touch.
+  # T0 passive | T1 low-impact (target must be in scope) | T2 intrusive (+ human gate)
+  max_tier: 1
+
+  # Ordered roles, matching CrewDef.steps. Order is significant: it is the
+  # execution order the bridge follows.
+  agents:
+    - recon-specialist
+
+  tasks:
+    - surface_enumeration

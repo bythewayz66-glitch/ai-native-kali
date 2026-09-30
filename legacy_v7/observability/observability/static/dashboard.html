@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI-NATIVE KALI - Observability</title>
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#111820; --panel-2:#0e141b; --line:#1e2a36;
+    --txt:#d7e3ee; --dim:#8b9cb0; --acc:#31d0aa; --acc2:#4aa3ff;
+    --warn:#e8b552; --bad:#ff6b6b; --ok:#3ecf8e;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--mono);font-size:13px;line-height:1.5}
+  header{padding:11px 16px;border-bottom:1px solid var(--line);background:var(--panel-2);position:sticky;top:0;z-index:10;display:flex;gap:14px;align-items:center}
+  header h1{margin:0;font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:var(--acc)}
+  header .sub{color:var(--dim);font-size:11px}
+  header .live{margin-left:auto;font-size:11px;color:var(--dim)}
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:14px 16px 40px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px 14px;min-width:0}
+  .panel h2{margin:0 0 10px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+  .panel.wide{grid-column:span 2}
+  .panel.full{grid-column:span 4}
+  .stat{display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px dotted var(--line)}
+  .stat:last-child{border-bottom:none}
+  .stat span{color:var(--dim)} .stat b{color:var(--acc);font-weight:600}
+  table{width:100%;border-collapse:collapse;font-size:11px}
+  th,td{text-align:left;padding:5px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--dim);font-weight:500;font-size:10.5px;text-transform:uppercase;letter-spacing:.08em}
+  td{word-break:break-word}
+  .tag{border:1px solid var(--line);border-radius:3px;padding:0 5px;font-size:10px;white-space:nowrap}
+  .tag.ok{color:var(--ok);border-color:#20533f} .tag.denied,.tag.error{color:var(--bad);border-color:#5d2b2b}
+  .tag.blocked{color:var(--warn);border-color:#5a4a22} .tag.high{color:var(--bad);border-color:#5d2b2b}
+  .tag.medium{color:var(--warn);border-color:#5a4a22} .tag.low{color:var(--acc2);border-color:#25476b}
+  .log{max-height:260px;overflow:auto;font-size:10.5px}
+  .log div{padding:2px 0;border-bottom:1px dotted var(--line);color:var(--txt)}
+  .log b{color:var(--txt);font-weight:500}
+  .log .ts{color:var(--dim)}
+  .muted{color:var(--dim);font-size:11px}
+  .bar{height:7px;background:var(--panel-2);border:1px solid var(--line);border-radius:3px;overflow:hidden;margin-top:4px}
+  .bar i{display:block;height:100%;background:var(--acc)}
+  .bar i.warn{background:var(--warn)} .bar i.bad{background:var(--bad)}
+  .offline{border-color:#5d2b2b !important}
+</style>
+</head>
+<body>
+<header>
+  <h1>AI-native Kali &middot; Observability</h1>
+  <span class="sub">agent timeline &middot; traces &middot; tokens &middot; audit chain</span>
+  <span class="live" id="live">connecting...</span>
+</header>
+
+<div class="grid">
+  <div class="panel" id="p-ingest">
+    <h2>Collector</h2>
+    <div class="stat"><span>events ingested</span><b id="i-events">-</b></div>
+    <div class="stat"><span>traces ingested</span><b id="i-traces">-</b></div>
+    <div class="stat"><span>audit rows</span><b id="i-audit">-</b></div>
+    <div class="stat"><span>last poll</span><b id="i-poll">-</b></div>
+  </div>
+
+  <div class="panel">
+    <h2>Token / cost / latency</h2>
+    <div class="stat"><span>tokens total</span><b id="t-tokens">-</b></div>
+    <div class="stat"><span>cost (usd)</span><b id="t-cost">-</b></div>
+    <div class="stat"><span>traces observed</span><b id="t-count">-</b></div>
+    <div class="stat"><span>avg / p95 (ms)</span><b id="t-lat">-</b></div>
+  </div>
+
+  <div class="panel">
+    <h2>Guardrail tiers</h2>
+    <div id="tierbox"><div class="muted">no tool calls observed yet</div></div>
+  </div>
+
+  <div class="panel">
+    <h2>Model health</h2>
+    <div id="models"><div class="muted">no model heartbeats recorded</div></div>
+  </div>
+
+  <div class="panel">
+    <h2>Alert routing</h2>
+    <div class="stat"><span>received</span><b id="ar-received">-</b></div>
+    <div class="stat"><span>delivered</span><b id="ar-delivered">-</b></div>
+    <div class="stat"><span>suppressed (dedupe)</span><b id="ar-suppressed">-</b></div>
+    <div class="stat"><span>failed (sink)</span><b id="ar-failed">-</b></div>
+    <div class="bar"><i id="ar-bar"></i></div>
+    <div class="muted" style="margin-top:8px">Retention</div>
+    <div class="stat"><span>stores</span><b id="rt-stores">-</b></div>
+    <div class="stat"><span>prunable rows</span><b id="rt-prunable">-</b></div>
+    <div class="stat"><span>refused (chained)</span><b id="rt-refused">-</b></div>
+    <div class="muted" style="margin-top:8px">Routed to the shell feed</div>
+    <div id="ar-notes"></div>
+  </div>
+
+  <div class="panel full">
+    <h2>Model-call inspector &mdash; prompts / responses</h2>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+      <span class="muted">captured <b id="mc-captured">0</b> &middot; buffered <b id="mc-buffered">0</b>
+        &middot; failed <b id="mc-failed">0</b> &middot; redacted <b id="mc-redacted">0</b>
+        &middot; truncated <b id="mc-truncated">0</b></span>
+      <label class="muted"><input type="checkbox" id="mc-redacted-only"> redacted only</label>
+      <button id="mc-reload">reload</button>
+      <span class="muted" id="mc-kinds"></span>
+    </div>
+    <div class="log"><table id="mcalls"><thead><tr>
+      <th>ts</th><th>model</th><th>backend</th><th>crew / role</th><th>card</th>
+      <th>ok</th><th>ms</th><th>tokens</th><th>prompt/response chars</th><th>redactions</th><th>trunc</th>
+    </tr></thead><tbody></tbody></table></div>
+    <div id="mc-detail" style="margin-top:10px"></div>
+    <div class="muted" style="margin-top:10px">Heartbeats (up/down edges raise the alerts above)</div>
+    <div id="mc-beats" class="log"></div>
+  </div>
+
+  <div class="panel wide">
+    <h2>Agent activity timeline</h2>
+    <div class="log" id="timeline"><div class="muted">waiting for events...</div></div>
+  </div>
+
+  <div class="panel wide">
+    <h2>Alerts</h2>
+    <div class="log" id="alerts"><div class="muted">no alerts</div></div>
+  </div>
+
+  <div class="panel full">
+    <h2>Tool-call traces</h2>
+    <div class="log"><table id="traces"><thead><tr>
+      <th>ts</th><th>tool</th><th>tier</th><th>agent</th><th>card</th><th>status</th><th>ms</th><th>mode</th><th>audit</th>
+    </tr></thead><tbody></tbody></table></div>
+  </div>
+
+  <div class="panel full">
+    <h2>Hash-chained audit log (tool layer)</h2>
+    <div class="log"><table id="audit"><thead><tr>
+      <th>seq</th><th>ts</th><th>tool</th><th>card</th><th>target</th><th>status</th><th>prev_hash</th><th>hash</th>
+    </tr></thead><tbody></tbody></table></div>
+  </div>
+</div>
+
+<script>
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function short(h,n){ return h ? esc(String(h).slice(0,n||14))+'...' : '-'; }
+// Truncated hashes still need to be readable in full when a human is auditing a
+// specific row, so carry the untruncated value in a title attribute.
+function hashCell(h){
+  if(!h) return '-';
+  return `<span title="${esc(h)}">${short(h,14)}</span>`;
+}
+function setText(id,v){ const n=document.getElementById(id); if(n) n.textContent = v; }
+
+async function tick(){
+  let snap;
+  try {
+    const r = await fetch('/snapshot?limit=60');
+    if(!r.ok) throw new Error('http '+r.status);
+    snap = await r.json();
+  } catch(e){
+    setText('live','collector unreachable: '+e.message);
+    document.querySelectorAll('.panel').forEach(p=>p.classList.add('offline'));
+    return;
+  }
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('offline'));
+  setText('live','live - auto refresh 3s');
+
+  const st = snap.status || {};
+  const ing = st.ingested || {};
+  setText('i-events', ing.events ?? 0);
+  setText('i-traces', ing.traces ?? 0);
+  setText('i-audit', ing.audit ?? 0);
+  setText('i-poll', st.last_poll_at ? new Date(st.last_poll_at*1000).toLocaleTimeString() : '-');
+
+  const m = (st.metrics || {});
+  const tc = m.token_cost || {};
+  const lat = m.latency || {};
+  setText('t-tokens', tc.tokens_total ?? 0);
+  setText('t-cost', (tc.cost_usd_total ?? 0).toFixed(4));
+  setText('t-count', lat.count ?? 0);
+  setText('t-lat', `${lat.avg_ms ?? 0} / ${lat.p95_ms ?? 0}`);
+
+  // guardrail tiers
+  const byTier = m.by_tier || {};
+  const tierNames = {0:'T0 passive',1:'T1 low-impact',2:'T2 intrusive',3:'T3 high-impact'};
+  const tierKeys = Object.keys(byTier).sort();
+  if (!tierKeys.length){
+    document.getElementById('tierbox').innerHTML = '<div class="muted">no tool calls observed yet</div>';
+  } else {
+    let max = 1;
+    tierKeys.forEach(k=>{ Object.values(byTier[k]).forEach(v=>{ max = Math.max(max, v); }); });
+    document.getElementById('tierbox').innerHTML = tierKeys.map(k=>{
+      const counts = byTier[k] || {};
+      const total = Object.values(counts).reduce((a,b)=>a+b,0);
+      const denied = counts.denied || 0;
+      const pct = Math.round((total / max) * 100);
+      const cls = denied ? 'bad' : (Number(k) >= 2 ? 'warn' : '');
+      return `<div class="stat"><span>${esc(tierNames[k] || ('T'+k))}</span><b>${total}${denied?` (${denied} denied)`:''}</b></div>
+        <div class="bar"><i class="${cls}" style="width:${pct}%"></i></div>`;
+    }).join('');
+  }
+
+  // model health
+  const models = m.models || {};
+  const modelKeys = Object.keys(models);
+  document.getElementById('models').innerHTML = modelKeys.length ? modelKeys.map(name=>{
+    const r = models[name];
+    return `<div class="stat"><span>${esc(name)}</span><b>${esc(r.status)}</b></div>
+      <div class="stat"><span>requests / errors</span><b>${r.requests} / ${r.errors}</b></div>
+      <div class="stat"><span>avg latency</span><b>${r.avg_latency_ms}ms</b></div>`;
+  }).join('') : '<div class="muted">no model heartbeats recorded</div>';
+
+  // Heartbeat history backs the model-health panel: the snapshot above shows the
+  // current state, but an up/down *edge* is what raises the alert, so the raw
+  // beats are readable here too.
+  refreshHeartbeats();
+
+  // timeline
+  const tl = snap.timeline || [];
+  document.getElementById('timeline').innerHTML = tl.length ? tl.map(e=>
+    `<div>${esc((e.ts||'').slice(11,19))} <b>${esc(e.actor)}</b> ${esc(e.type)} ${e.from?`${esc(e.from)}&rarr;${esc(e.to)}`:''} <span class="muted">${esc(e.card_id||'')}</span></div>`
+  ).join('') : '<div class="muted">waiting for events...</div>';
+
+  // alerts
+  const al = snap.alerts || [];
+  document.getElementById('alerts').innerHTML = al.length ? al.map(a=>
+    `<div><span class="tag ${esc(a.severity)}">${esc(a.severity)}</span> <b>${esc(a.kind)}</b> <span class="ts">${esc(a.message)}</span></div>`
+  ).join('') : '<div class="muted">no alerts</div>';
+
+  // traces
+  const tr = snap.traces || [];
+  document.querySelector('#traces tbody').innerHTML = tr.length ? tr.map(t=>
+    `<tr><td>${esc((t.ts||'').slice(11,19))}</td><td>${esc(t.tool)}</td><td>${esc(t.tier)}</td>
+     <td>${esc(t.agent||'-')}</td><td>${esc(t.card_id||'-')}</td>
+     <td><span class="tag ${esc(t.status)}">${esc(t.status)}</span></td>
+     <td>${esc(t.duration_ms||0)}</td><td>${t.dry_run?'dry-run':'live'}</td>
+     <td>${hashCell(t.audit_hash)}</td></tr>`
+  ).join('') : '<tr><td colspan="9" class="muted">no tool calls recorded yet</td></tr>';
+
+  // audit
+  const au = snap.audit || [];
+  document.querySelector('#audit tbody').innerHTML = au.length ? au.map(a=>
+    `<tr><td>${esc(a.seq)}</td><td>${esc((a.ts||'').slice(11,19))}</td><td>${esc(a.tool)}</td>
+     <td>${esc(a.card_id||'-')}</td><td>${esc(a.target||'-')}</td>
+     <td><span class="tag ${esc(a.status)}">${esc(a.status)}</span></td>
+     <td>${hashCell(a.prev_hash)}</td><td>${hashCell(a.audit_hash)}</td></tr>`
+  ).join('') : '<tr><td colspan="8" class="muted">audit chain is empty</td></tr>';
+}
+
+// ------------------------------------------- Phase 5/6: inspector panel
+// The list endpoint deliberately omits prompt/response bodies, so the table
+// shows sizes only; the operator opens one call to see the actual text. That
+// keeps a poll from pushing every captured prompt through the browser.
+function num(v){ return v==null ? '-' : v; }
+
+async function loadModelCalls(){
+  const only = document.getElementById('mc-redacted-only').checked ? '&redacted_only=true' : '';
+  let body;
+  try {
+    const r = await fetch('/model/calls?limit=50'+only);
+    if(!r.ok) throw new Error('http '+r.status);
+    body = await r.json();
+  } catch(e){ document.querySelector('#mcalls tbody').innerHTML =
+    `<tr><td colspan="11" class="muted">inspector unavailable: ${esc(e.message)}</td></tr>`; return; }
+
+  const c = body.counts || {};
+  setText('mc-captured', num(c.captured));
+  setText('mc-buffered', num(c.buffered));
+  setText('mc-failed', num(c.failed));
+  setText('mc-redacted', num(c.redacted_calls));
+  setText('mc-truncated', num(c.truncated_calls));
+  setText('mc-kinds', (c.redaction_kinds||[]).length ? ('kinds: '+(c.redaction_kinds||[]).join(', ')) : 'no secrets redacted');
+
+  const rows = body.items || [];
+  document.querySelector('#mcalls tbody').innerHTML = rows.length ? rows.map(r=>
+    `<tr data-call="${esc(r.id)}" style="cursor:pointer">
+      <td>${esc(new Date(r.ts*1000).toLocaleTimeString())}</td>
+      <td>${esc(r.model||'-')}</td><td>${esc(r.backend||'-')}</td>
+      <td>${esc(r.crew||'-')} / ${esc(r.role||'-')}</td><td>${esc(r.card_id||'-')}</td>
+      <td><span class="tag ${r.ok?'ok':'error'}">${r.ok?'ok':'fail'}</span></td>
+      <td>${num(r.latency_ms)}</td><td>${num(r.total_tokens)}</td>
+      <td>${num(r.prompt_chars)} / ${num(r.response_chars)}</td>
+      <td>${(r.redactions||[]).map(k=>`<span class="tag medium">${esc(k)}</span>`).join(' ')||'-'}</td>
+      <td>${r.truncated?'<span class="tag blocked">trunc</span>':'-'}</td></tr>`
+  ).join('') : '<tr><td colspan="11" class="muted">no model calls captured yet</td></tr>';
+
+  document.querySelectorAll('#mcalls tbody tr[data-call]').forEach(tr =>
+    tr.onclick = () => openModelCall(tr.dataset.call));
+}
+
+async function openModelCall(id){
+  const box = document.getElementById('mc-detail');
+  try {
+    const r = await fetch('/model/calls/'+encodeURIComponent(id));
+    if(!r.ok) throw new Error('http '+r.status);
+    const d = await r.json();
+    box.innerHTML = `<div class="stat"><span>${esc(d.id)} &middot; ${esc(d.model)} &middot; ${esc(d.backend)}</span>
+      <b>${esc(d.crew||'-')} / ${esc(d.role||'-')}</b></div>
+      ${d.truncated?'<div class="muted">body was truncated before storage; the char counts above are the stored length</div>':''}
+      ${(d.redactions||[]).length?`<div class="muted">redacted before storage: ${(d.redactions||[]).map(esc).join(', ')}</div>`:''}
+      <div class="muted" style="margin-top:6px">prompt (${esc(d.prompt_chars)} chars)</div><pre>${esc(d.prompt||'')}</pre>
+      <div class="muted">response (${esc(d.response_chars)} chars)</div><pre>${esc(d.response||'')}</pre>`;
+  } catch(e){ box.innerHTML = `<div class="muted">could not load ${esc(id)}: ${esc(e.message)}</div>`; }
+}
+
+async function loadAlertRouting(){
+  try {
+    const [st, rt, notes] = await Promise.all([
+      fetch('/alerting/status').then(r=>r.json()),
+      fetch('/retention').then(r=>r.json()),
+      fetch('/alerting/notifications?limit=10').then(r=>r.json()),
+    ]);
+    // The router's own vocabulary is received/delivered/suppressed/failed; the
+    // panel shows what it actually tracks rather than a parallel set of names.
+    setText('ar-received', num(st.received));
+    setText('ar-delivered', num(st.delivered));
+    setText('ar-suppressed', num(st.suppressed));
+    setText('ar-failed', num(st.failed));
+    const total = (st.received||0);
+    const bar = document.getElementById('ar-bar');
+    if (bar) bar.style.width = (total? Math.round(((st.delivered||0)/total)*100) : 0) + '%';
+
+    const items = notes.items || [];
+    document.getElementById('ar-notes').innerHTML = items.length ? items.map(n=>
+      `<div><span class="tag ${esc(n.severity||'medium')}">${esc(n.severity||'-')}</span>
+        <b>${esc(n.kind||'-')}</b> <span class="ts">${esc(n.message||'')}</span></div>`
+    ).join('') : '<div class="muted">no alerts routed yet</div>';
+
+    const rs = rt.status || {};
+    setText('rt-stores', num(rs.stores));
+    setText('rt-prunable', num(rs.prunable_rows));
+    setText('rt-refused', num(rs.refused_stores));
+  } catch(e){ /* the panel is advisory; a dead collector is already reported above */ }
+}
+
+// ------------------------------------------------ model heartbeat history
+// /model/health/history returns the beats behind the edge-keyed alert: a model
+// down for ten probes fires one alert, but an operator still needs to see the
+// ten probes.
+async function refreshHeartbeats(){
+  try {
+    const r = await fetch('/model/health/history?limit=10');
+    if(!r.ok) throw new Error('http '+r.status);
+    const body = await r.json();
+    const beats = body.beats || body.items || [];
+    const el = document.getElementById('mc-beats');
+    if (!el) return;
+    el.innerHTML = beats.length ? beats.map(b=>
+      `<div><span class="ts">${esc(new Date((b.ts||0)*1000).toLocaleTimeString())}</span>
+        <b>${esc(b.model||'-')}</b>
+        <span class="tag ${b.ok?'ok':'error'}">${b.ok?'up':'down'}</span>
+        <span class="muted">${esc(b.error||'')}</span></div>`
+    ).join('') : '<div class="muted">no heartbeat history yet</div>';
+  } catch(e){ /* advisory, like the rest of the polling panels */ }
+}
+
+document.getElementById('mc-reload').onclick = loadModelCalls;
+document.getElementById('mc-redacted-only').onchange = loadModelCalls;
+
+tick();
+loadModelCalls();
+loadAlertRouting();
+setInterval(tick, 3000);
+setInterval(loadModelCalls, 6000);
+setInterval(loadAlertRouting, 6000);
+</script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+# Remediation crew agents. Mirrors ROLE_REGISTRY in agent-runtime/agent_runtime/roles.py.
+#
+# `tools` and `guardrail.max_tier` are contracts, not suggestions: the runtime
+# refuses to bind a tool above the role ceiling, so a role cannot escalate itself
+# by editing a card.
+
+remediation-specialist:
+  role: Remediation Specialist
+  goal: >
+    Close a finding: verify the fix landed and the exposure is gone.
+  backstory: >
+    Works one finding at a time, on the narrowest scope that finding names -
+    never the whole engagement. Re-checks rather than assuming, because
+    "we patched it" and "it is patched" are different claims.
+  tools:
+    - patch_level_check       # T1
+    - service_exposure_check  # T1
+    - firewall_audit          # T1
+    - integrity_baseline      # T1
+  guardrail:
+    max_tier: 1
+  boards:
+    - engagement
+    - agent
+  crew: remediation
+  allow_delegation: false
+  verbose: true

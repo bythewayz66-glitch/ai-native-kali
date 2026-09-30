@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# live-build configuration for the AI-native Kali ISO (Phase 4 scaffold).
+# Reference: blueprint section 07 (packaging & delivery).
+#
+# This is the real live-build entrypoint: `lb build` in a checkout that uses
+# this directory reads auto/ first, then config/.
+set -e
+
+lb config noauto \
+  --distribution kali-rolling \
+  --architectures amd64 \
+  --archive-areas "main contrib non-free non-free-firmware" \
+  --parent-distribution kali-rolling \
+  --mirror-bootstrap "http://http.kali.org/kali" \
+  --mirror-chroot "http://http.kali.org/kali" \
+  --mirror-chroot-security "http://http.kali.org/kali" \
+  --mirror-binary "http://http.kali.org/kali" \
+  --mirror-binary-security "http://http.kali.org/kali" \
+  --keyring-packages kali-archive-keyring \
+  --linux-flavours amd64 \
+  --bootloader grub-efi \
+  --binary-images iso-hybrid \
+  --bootappend-live "boot=live components quiet splash username=kali hostname=kali-ai" \
+  --iso-application "AI-native Kali" \
+  --iso-publisher "AI-native Kali project" \
+  --iso-volume "KALI_AI_NATIVE_$(date +%Y%m%d)" \
+  --apt-indices false \
+  --apt-recommends false \
+  --debian-installer false \
+  --memtest none \
+  --zsync false \
+  "$@"
+
+# The metapackages live in packaging/metapackages and are copied into the
+# chroot by config/hooks/0005-install-metapackages.hook.chroot

@@ -1,0 +1,25 @@
+{
+  "package": "kali-ai-native-shell",
+  "version": "0.1.0",
+  "components": ["hermes-shell"],
+  "install_root": "/opt/ai-native-kali",
+  "services": [
+    {"name": "hermes-shell", "component": "hermes-shell", "port": 8085, "unit": "hermes-shell.service"}
+  ],
+  "session": {
+    "desktop_entry": "/usr/share/wayland-sessions/hermes-shell.desktop",
+    "name": "Hermes AI Desktop",
+    "exec": "/usr/bin/hermes-shell-session"
+  },
+  "surfaces": [
+    "kanban_board",
+    "taskbar_widget",
+    "notification_feed",
+    "card_drawer",
+    "observability",
+    "file_manager_drop",
+    "overlay_widget",
+    "window_manager",
+    "gtk_layer_shell_panel"
+  ]
+}
