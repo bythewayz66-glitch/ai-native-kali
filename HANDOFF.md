@@ -1,15 +1,14 @@
 # HANDOFF — AI-native Kali
 
-**Written:** 2026-09-30 · **Tree:** `ai-native-kali_v10` (this repo root)
-**Target repo:** `https://github.com/bythewayz66-glitch/ai-native-kali` — a **new, dedicated**
+**Written:** 2026-10-02 · **Tree:** `ai-native-kali_v11` (this repo root)
+**Repo:** `https://github.com/bythewayz66-glitch/ai-native-kali` — a **new, dedicated, PUBLIC**
 repo. This project must **never** be pushed to `petrichor` (a separate private Unity/C#
-game). The `origin` remote here already points at `ai-native-kali`.
-**Local commit:** branch `main`, **379 tracked files**. The authoritative tip is
-`git log -1 --format=%H` on `main` (branch `main`). The tree was prepared by the Phase 10
-commit — dedicated repo, repo hygiene, push helper, HANDOFF and BUILD_STATUS — which sits on
-top of the Phase 9 HANDOFF commit, the hardened-`.gitignore` commit, and the v8 tree commit
-(which carries `legacy_v7/` and the live-build mirror fix).
-**Push status:** ❌ **FAILED — no credentials in the build sandbox.** See §5.
+game). The `origin` remote here points at `ai-native-kali`.
+**Local commit:** branch `main`, **379 tracked files**, tip
+`42076ee66e1f87983dabd9a0116ec46af13adc04`.
+**Push status:** ✅ **PUSHED AND VERIFIED.** Remote `main` = local `main` =
+`42076ee66e1f87983dabd9a0116ec46af13adc04`; a fresh clone of the pushed tree ran
+`make dev && make smoke` → **155/155 checks passed**. See §5.
 
 This document is self-contained: a fresh local agent can continue from here without the
 chat that produced it. Read it top to bottom before running anything.
@@ -169,60 +168,57 @@ a run with the real `crewai` package installed driving a live crew. To close it:
 
 ---
 
-## 5. The push — what happened and what you must do
+## 5. The push — done, and verified
 
-The tree was committed locally and the push was attempted against the **new** repo. **It
-failed:**
+The repo was created and the tree pushed **for real** from the build sandbox, over SSH.
+
+**How it was done (the sandbox had no PAT, but GitHub *was* connected):**
+
+1. The GitHub integration on the agent (Composio, account `bythewayz66-glitch`) was used to
+   **create the public repo** `ai-native-kali` and to **add an SSH deploy key** with write
+   access.
+2. The sandbox generated an ed25519 keypair, the public half was registered as a deploy key
+   via the API, and the push went over SSH
+   (`git@github.com:bythewayz66-glitch/ai-native-kali.git`).
+
+**Evidence — the push landed:**
 
 ```
-$ curl -X POST https://api.github.com/user/repos -d '{"name":"ai-native-kali","private":true}'
-HTTP 401
-{"message": "Requires authentication", "status": "401"}
+$ git push -u origin main
+To github.com:bythewayz66-glitch/ai-native-kali.git
+ * [new branch]      main -> main
+branch 'main' set up to track 'origin/main'.
+PUSH_EXIT=0
 
-$ GIT_TERMINAL_PROMPT=0 git push -u origin main
-remote: Repository not found.
-fatal: Authentication failed for 'https://github.com/bythewayz66-glitch/ai-native-kali.git/'
-PUSH_EXIT=128
+$ git ls-remote origin
+42076ee66e1f87983dabd9a0116ec46af13adc04        HEAD
+42076ee66e1f87983dabd9a0116ec46af13adc04        refs/heads/main
 ```
 
-**Why:** the build sandbox has **no GitHub credentials of any kind** — no `gh` CLI, no
-`GITHUB_TOKEN`/`GH_TOKEN` in the environment, no `~/.git-credentials`, no `~/.netrc`, no SSH
-key in `~/.ssh`, and no GitHub MCP integration. The repo does not exist yet and the account
-is private, so an unauthenticated request returns `401` (API) / `404` (git, reported as
-"Repository not found"). This is a **credentials gap, not a network problem** —
-`https://github.com` and `https://api.github.com` both answer `200` from the sandbox.
+Remote `main` = local `main` = `42076ee66e1f87983dabd9a0116ec46af13adc04` — **exact match**.
 
-**What you need to do** — the easy path is the bundled script:
+**Verified from the pushed tree, not the sandbox copy:** a fresh `git clone` of the remote
+was made into a temp dir and `make dev && make smoke` was run there:
+
+```
+all 7 services healthy
+155/155 checks passed
+full loop verified: card -> crew -> tool -> trace -> audit -> Review
+```
+
+**Repo:** https://github.com/bythewayz66-glitch/ai-native-kali (public) · branch `main` ·
+tip `42076ee66e1f87983dabd9a0116ec46af13adc04` · 379 tracked files.
+
+**If you ever need to re-push from a machine with a PAT** (e.g. after new commits), the
+bundled helper still works and now defaults to a **public** repo:
 
 ```bash
-# 1. Create a PAT with `repo` scope: https://github.com/settings/tokens
-# 2. From the repo root:
 GITHUB_TOKEN=ghp_xxxxxxxx ./push_to_github.sh
 ```
 
-`push_to_github.sh` creates the private repo `ai-native-kali`, sets `origin`, and pushes
-`main` — using the token only for that push (it is not written to `.git/config`). It
-**refuses to run if `origin` points at petrichor**, so the two projects can never be mixed.
-
-Or do it by hand:
-
-```bash
-# Option A — HTTPS with a PAT (needs `repo` scope)
-git remote set-url origin https://<YOUR_PAT>@github.com/bythewayz66-glitch/ai-native-kali.git
-git push -u origin main
-
-# Option B — SSH
-git remote set-url origin git@github.com:bythewayz66-glitch/ai-native-kali.git
-git push -u origin main
-
-# Option C — GitHub CLI
-gh repo create ai-native-kali --private --source=. --remote=origin --push
-```
-
-The local commit is ready and needs no changes: branch `main`, 379 tracked files; read the
-exact tip with `git log -1 --format=%H` (it is the Phase 10 commit that contains this file).
-It is a **fresh root commit** (the sandbox had no `.git`), so the new repo starts clean — no
-history to reconcile, no force-push needed.
+It creates the repo if missing, sets `origin`, and pushes `main` — using the token only for
+that push (never written to `.git/config`). It **refuses to run if `origin` points at
+petrichor**, so the two projects can never be mixed.
 
 ---
 
@@ -308,6 +304,8 @@ not a regression.
 a real Kali host — the mirror bug that blocked it before is now fixed), the Ollama weights
 (no `ollama`/network in the sandbox), and a live CrewAI run (package not installed).
 
-**Not done:** the push. The commit exists locally; the sandbox has no credentials. Supply a
-PAT and run `./push_to_github.sh` — see §5. The new repo is `ai-native-kali`; **petrichor is
-untouched and must stay that way.**
+**Done:** the push. The tree is live at
+`https://github.com/bythewayz66-glitch/ai-native-kali` (public), branch `main`, tip
+`42076ee66e1f87983dabd9a0116ec46af13adc04` — remote SHA matches local, and a fresh clone of
+the pushed tree passed `make dev && make smoke` **155/155**. See §5. The repo is
+`ai-native-kali`; **petrichor is untouched and must stay that way.**

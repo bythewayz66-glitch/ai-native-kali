@@ -16,14 +16,14 @@
 # OPTIONS (env vars)
 #   GITHUB_OWNER   default: bythewayz66-glitch
 #   REPO_NAME      default: ai-native-kali
-#   REPO_PRIVATE   default: true   (set to "false" for a public repo)
+#   REPO_PRIVATE   default: false  (public; set to "true" for a private repo)
 #   BRANCH         default: main
 #
 set -euo pipefail
 
 GITHUB_OWNER="${GITHUB_OWNER:-bythewayz66-glitch}"
 REPO_NAME="${REPO_NAME:-ai-native-kali}"
-REPO_PRIVATE="${REPO_PRIVATE:-true}"
+REPO_PRIVATE="${REPO_PRIVATE:-false}"
 BRANCH="${BRANCH:-main}"
 
 # --- resolve the token -------------------------------------------------------
@@ -85,10 +85,11 @@ fi
 
 FULL_REPO="${GITHUB_OWNER}/${REPO_NAME}"
 echo "==> Target repo: ${FULL_REPO} (private=${REPO_PRIVATE})"
+if [ "$REPO_PRIVATE" = "false" ]; then echo "    (public repo)"; fi
 
 # --- create the repo (idempotent) -------------------------------------------
 echo "==> Creating repo (skipped if it already exists)"
-CREATE_BODY="$(printf '{"name":"%s","private":%s,"description":"AI-native security OS: Kali + Hermes + CrewAI","auto_init":false}' "$REPO_NAME" "$REPO_PRIVATE")"
+CREATE_BODY="$(printf '{"name":"%s","private":%s,"description":"AI-Native Kali Linux - an AI-native OS blueprint: agent runtime, kanban core, memory store, Hermes shell, board UI, observability, and live-build packaging.","auto_init":false}' "$REPO_NAME" "$REPO_PRIVATE")"
 HTTP_CODE="$(curl -sS -o /tmp/gh_create.json -w '%{http_code}' \
   -X POST "$API/user/repos" \
   -H "$AUTH_HEADER" -H "Accept: application/vnd.github+json" \
