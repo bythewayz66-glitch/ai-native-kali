@@ -25,24 +25,9 @@ GITHUB_OWNER="${GITHUB_OWNER:-bythewayz66-glitch}"
 REPO_NAME="${REPO_NAME:-ai-native-kali}"
 REPO_PRIVATE="${REPO_PRIVATE:-false}"
 BRANCH="${BRANCH:-main}"
+SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_ed25519}"
 
-# --- resolve the token -------------------------------------------------------
-TOKEN="${GITHUB_TOKEN:-${1:-}}"
-if [ -z "$TOKEN" ]; then
-  if [ -t 0 ]; then
-    read -r -s -p "GitHub PAT (repo scope, input hidden): " TOKEN
-    echo
-  else
-    echo "ERROR: no token. Set GITHUB_TOKEN, pass it as \$1, or run interactively." >&2
-    exit 2
-  fi
-fi
-if [ -z "$TOKEN" ]; then
-  echo "ERROR: empty token." >&2
-  exit 2
-fi
-
-# --- sanity: we are in the right tree ---------------------------------------
+# --- sanity: we are in the right tree (do this BEFORE asking for any token) --
 if [ ! -f Makefile ] || [ ! -d packaging ]; then
   echo "ERROR: run this from the AI-native Kali repo root (Makefile + packaging/ not found)." >&2
   exit 2
@@ -58,9 +43,63 @@ case "$CURRENT_REMOTE" in
   *petrichor*)
     echo "REFUSING: the current 'origin' points at petrichor ($CURRENT_REMOTE)." >&2
     echo "petrichor is a different project and must not be touched." >&2
-    echo "This script will repoint origin to the new repo below; re-run to proceed." >&2
+    exit 1
     ;;
 esac
+
+FULL_REPO="${GITHUB_OWNER}/${REPO_NAME}"
+SSH_URL="git@github.com:${FULL_REPO}.git"
+
+# --- Strategy 1: SSH deploy key (no token needed) -----------------------------
+# The sandbox carries an ed25519 key registered as a WRITE deploy key on the
+# repo. If it authenticates, push over SSH and skip the PAT flow entirely.
+if [ -f "$SSH_KEY" ]; then
+  mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
+  cat > "$HOME/.ssh/config" <<EOF
+Host github.com
+    HostName github.com
+    User git
+    IdentityFile $SSH_KEY
+    IdentitiesOnly yes
+    StrictHostKeyChecking accept-new
+EOF
+  chmod 600 "$HOME/.ssh/config"
+  echo "==> Trying SSH deploy key first (no token) ..."
+  git remote remove origin 2>/dev/null || true
+  git remote add origin "$SSH_URL"
+  # Reliable signal: ls-remote over SSH. (The `ssh -T` banner grep is flaky in a pipe.)
+  if git ls-remote origin >/dev/null 2>&1; then
+    echo "    SSH deploy key authenticated (ls-remote OK)."
+    echo "==> Pushing branch '${BRANCH}' over SSH -> $SSH_URL"
+    git push -u origin "$BRANCH"
+    echo
+    echo "==> Done. Repo: https://github.com/${FULL_REPO}  (public)"
+    echo "    Commit: $(git rev-parse HEAD)  Branch: ${BRANCH}"
+    echo "    Auth: SSH deploy key (no token stored)."
+    exit 0
+  else
+    echo "    SSH key not registered/authenticated — falling back to token path."
+  fi
+fi
+
+# --- Strategy 2: PAT (create repo if needed, push over HTTPS) -----------------
+# resolve the token
+TOKEN="${GITHUB_TOKEN:-${1:-}}"
+if [ -z "$TOKEN" ]; then
+  if [ -t 0 ]; then
+    read -r -s -p "GitHub PAT (repo scope, input hidden): " TOKEN
+    echo
+  else
+    echo "ERROR: no SSH deploy key and no token." >&2
+    echo "       Register ~/.ssh/id_ed25519.pub as a write deploy key, OR set GITHUB_TOKEN," >&2
+    echo "       pass a PAT as \$1, or run interactively." >&2
+    exit 2
+  fi
+fi
+if [ -z "$TOKEN" ]; then
+  echo "ERROR: empty token." >&2
+  exit 2
+fi
 
 API="https://api.github.com"
 AUTH_HEADER="Authorization: Bearer ${TOKEN}"
