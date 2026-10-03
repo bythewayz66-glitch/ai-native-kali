@@ -1,5 +1,32 @@
 # BUILD STATUS — AI-native Kali
 
+> ### Phase 12 — ✅ persistent SSH push access configured (no PAT needed)
+>
+> The "no credentials" blocker is now permanently resolved for this repo. The sandbox
+> carries an ed25519 key (`~/.ssh/id_ed25519`) registered on GitHub as a **write deploy
+> key** for `bythewayz66-glitch/ai-native-kali`. Push access is wired so future agent
+> runs can `git push` directly:
+>
+> - `~/.ssh/config` pins `github.com` → `git` + `IdentityFile ~/.ssh/id_ed25519`.
+> - `scripts/setup_git_auth.sh` (new) sets git identity, points `origin` at the SSH
+>   URL, and verifies with `git ls-remote`. Auto-selects SSH; falls back to
+>   `GITHUB_TOKEN` if the key is absent. Refuses to touch petrichor.
+> - `push_to_github.sh` is now **SSH-first**: it tries the deploy key and pushes over
+>   SSH before ever asking for a PAT.
+>
+> Verified — a real commit was pushed over SSH with **no token**:
+> ```
+> $ ./scripts/setup_git_auth.sh   →  SSH deploy key authenticated (ls-remote OK)
+> $ git push -u origin main       →  5f650f0..da49cf2  main -> main   PUSH_EXIT=0
+> $ git ls-remote origin HEAD     →  da49cf28bdb7d2ef490811cc5e04982cdc79a115
+>    (== git rev-parse HEAD — MATCH)
+> ```
+>
+> **How to push from any future run:** `cd <repo root> && ./scripts/setup_git_auth.sh && git push -u origin main`
+> (no token required while the deploy key is registered).
+
+---
+
 **Last verified:** 2026-10-02, from a **fresh clone of the pushed remote** — `make dev`
 (all 7 services healthy) + `make smoke` (**155/155**). Phase 11 changed **no application
 code** — it is the push itself plus doc updates — so the Phase 9 pytest numbers still stand.
