@@ -36,6 +36,8 @@ lb config noauto \
   --apt-recommends false \
   --security false \
   --updates false \
+  --chroot-squashfs-compression-type gzip \
+  --cache false \
   --debian-installer false \
   --memtest none \
   --zsync false \

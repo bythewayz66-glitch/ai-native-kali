@@ -79,7 +79,28 @@ fi
 cd "$BUILD_DIR"
 echo "== lb config"
 bash auto/config
-echo "== lb build (this is the long one)"
-lb build
+echo "== lb bootstrap"
+lb bootstrap
+# In a container mknod is denied, so debootstrap cannot create real device
+# nodes: chroot/dev/null ends up missing and any postinst that opens /dev/null
+# fails -- e.g. the GVM/OpenVAS gpg key import aborts with
+# "gpg: Fatal: failed to open '/dev/null': Permission denied", which then
+# cascades to ospd-openvas/gvmd/gsad/gvm and fails the whole chroot stage.
+# live-build mounts /proc, /sys and /dev/pts but never /dev. A whole-/dev bind
+# does not survive lb's mount handling (verified: chroot/dev/null was still
+# absent), so bind the individual device nodes the postinsts actually open.
+# Harmless on a normal host, where the nodes already exist.
+if [ -d "$BUILD_DIR/chroot/dev" ]; then
+  for dev in null zero full random urandom tty; do
+    if [ -e "/dev/$dev" ]; then
+      touch "$BUILD_DIR/chroot/dev/$dev" 2>/dev/null || true
+      mount --bind "/dev/$dev" "$BUILD_DIR/chroot/dev/$dev" 2>/dev/null || true
+    fi
+  done
+fi
+echo "== lb chroot (this is the long one)"
+lb chroot
+echo "== lb binary"
+lb binary
 
 echo "== done: $(ls -1 "$BUILD_DIR"/*.iso 2>/dev/null || echo 'no iso produced')"

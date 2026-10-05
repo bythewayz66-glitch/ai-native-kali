@@ -1044,4 +1044,39 @@ cgroup `memory.max`; `qwen2.5:0.5b` fits and completes the run.)
 **Suite.** `pytest` → **1841 passed, 12 skipped, 0 failed**. `make dev` → 7/7 healthy.
 `make smoke` → **155/155**.
 
+---
+
+## Phase 14 — ISO build and boot (real output)
+
+**Disk.** `/` overlay is 8.0 GB; `/var/lib/docker` is on `/dev/md1` with **2.8 TB free** and
+writable (verified with a 100 MB write test). `BUILD_DIR=/var/lib/docker/ai-native-kali-build`
+removes the disk blocker; the build peaked at ~20 GB.
+
+**Chroot blockers cleared.**
+
+* `mknod` EPERM (seccomp) → `export container=lxc`; debootstrap then reports
+  `Base system installed successfully.`
+* GVM/OpenVAS `/dev/null` EPERM → per-device bind-mount in `packaging/build-iso.sh`; the
+  chroot's `/dev/null` is a real char device (`crw-rw-rw- 1, 3`) and the chroot stage completes.
+* `lb bootstrap` cache-save copying live `/proc` (build dir → 240 GB) → `--cache false` in
+  `packaging/live-build/auto/config`.
+
+**Binary stage.** `mksquashfs` OOM-killed (exit 137) with 64 processors; live-build only adds
+`-processors 1 -mem 256M` when stdin is not a tty. Resumed with `lb binary < /dev/null` →
+`P: Binary stage completed`, `EXIT=0`.
+
+**ISO.**
+
+```
+/var/lib/docker/ai-native-kali-build/live-image-amd64.hybrid.iso
+5,967,886,336 bytes (5.6 GiB)
+sha256 c640dd48c49213841f63f085444f34530833a861a193e5fe9b61de82ea296692
+ISO 9660 CD-ROM filesystem data 'KALI_AI_NATIVE_20261005' (bootable)
+```
+
+**Boot.** QEMU 7.2, kernel `7.1.5+kali-amd64`. Serial console reaches systemd, `live-config`
+late userspace and `ifup@eth0` at ~54 s, then QEMU is OOM-killed (exit 137) by the 2 GB cgroup
+`memory.max`. Three attempts (2048/1024/640 MB) reached the same point. `bootable_iso: true`;
+`hermes_session_reached: false` (sandbox memory limit).
+
 

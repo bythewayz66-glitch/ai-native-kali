@@ -335,3 +335,35 @@ healthy; `make smoke` → 155/155. **D5 with the real embedder:** semantic recal
 **Next steps:** (1) run `make iso-full` on a ≥15 GB host and boot to the Hermes session;
 (2) re-run the live crew with the bundled 3b model on a host with a larger memory cgroup;
 (3) the file-manager drop surface and start-menu polish remain as before.
+
+---
+
+## Phase 14 — the ISO is built and it boots
+
+The Phase 13 handoff's first next step is done: `make iso-full` completes and produces a
+bootable image. Four real blockers were cleared (all recorded in `BUILD_STATUS.md` and
+`docs/VERIFICATION.md`):
+
+* **Disk** — the build dir moved to `/var/lib/docker` (md1, 2.8 TB free); the 8 GB overlay was
+  the only disk blocker.
+* **`mknod` EPERM** — `export container=lxc` (already in tree).
+* **GVM/OpenVAS `/dev/null` EPERM** — per-device bind-mount in `packaging/build-iso.sh`.
+* **`lb bootstrap` cache-save copying live `/proc`** (240 GB) — `--cache false` in
+  `packaging/live-build/auto/config`.
+* **`mksquashfs` OOM (exit 137)** — live-build only adds `-processors 1 -mem 256M` when stdin
+  is not a tty; resume with `lb binary < /dev/null`.
+
+**ISO:** `/var/lib/docker/ai-native-kali-build/live-image-amd64.hybrid.iso`, 5,967,886,336
+bytes, sha256 `c640dd48c49213841f63f085444f34530833a861a193e5fe9b61de82ea296692`, volume
+`KALI_AI_NATIVE_20261005`, bootable. Rootfs: 2766 packages incl. `kali-linux-core`,
+`kali-tools-*`, `burpsuite`, `metasploit-framework`, `nodejs`.
+
+**Boot:** the ISO boots — QEMU 7.2 / kernel `7.1.5+kali-amd64` reaches systemd, `live-config`
+late userspace and networking at ~54 s — but QEMU is OOM-killed (exit 137) by the 2 GB cgroup
+`memory.max` before the graphical session. `bootable_iso: true`; `hermes_session_reached:
+false` (sandbox memory limit, not the image).
+
+**Next steps:** (1) boot the ISO to the Hermes session on a host with ≥4 GB RAM free
+(`qemu-system-x86_64 -m 4096 -cdrom live-image-amd64.hybrid.iso`); (2) re-run the live crew
+with the bundled 3b model on a host with a larger memory cgroup; (3) the file-manager drop
+surface and start-menu polish remain as before.

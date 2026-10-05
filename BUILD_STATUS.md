@@ -1312,3 +1312,62 @@ about the sandbox once Ollama was running. They now pin the deterministic hashin
 (`set_embedder(HashingEmbedder())`) so the assertions are about the store, not the host. The
 smoke check "vector recall reports its backend honestly" now compares recall's reported
 backend against the store's live backend instead of a hardcoded `hashing-blake2b`.
+
+---
+
+## Phase 14 — the ISO is built and it boots
+
+`make iso-full` now completes end to end and produces a bootable image. Four real blockers
+were cleared, each with the command output recorded in `docs/VERIFICATION.md`.
+
+### Disk — the build dir moved off the 8 GB overlay
+
+The overlay `/` is 8.0 GB, but `/var/lib/docker` is a separate mount on `/dev/md1` with
+**2.8 TB free** and is writable. Building with `BUILD_DIR=/var/lib/docker/ai-native-kali-build`
+removes the disk blocker entirely; the build peaked at ~20 GB with no pressure.
+
+### The three chroot blockers
+
+1. **`mknod` EPERM (seccomp).** `export container=lxc` makes debootstrap bind-mount the host
+   `/dev` instead of calling `mknod`; the base system then installs.
+2. **`/dev/null` EPERM in the chroot.** The GVM/OpenVAS postinst aborted with
+   `gpg: Fatal: failed to open '/dev/null': Permission denied`, cascading to
+   `ospd-openvas/gvmd/gsad/gvm`. A whole-`/dev` bind does **not** survive lb's mount handling
+   (verified: `chroot/dev/null` was still absent), so `packaging/build-iso.sh` now bind-mounts
+   the individual device nodes (`null zero full random urandom tty`) into `chroot/dev`.
+3. **`lb bootstrap` cache-save copying live `/proc`.** The bootstrap cache-save ran
+   `cp -a chroot` while `/proc` was mounted, ballooning the build dir to **240 GB**. Fixed with
+   `--cache false` in `packaging/live-build/auto/config`.
+
+### The binary-stage blocker
+
+`mksquashfs` was **OOM-killed (exit 137)** compressing the 15 GB rootfs: live-build only adds
+`-processors 1 -mem 256M` when stdin is **not** a terminal, and the tmux run had a pty, so it
+used all 64 processors. Resuming with `lb binary < /dev/null` applied the low-memory flags and
+completed. (The chroot stage was already complete, so no rebuild was needed.)
+
+### Result — a real, bootable ISO
+
+```
+path   : /var/lib/docker/ai-native-kali-build/live-image-amd64.hybrid.iso
+size   : 5,967,886,336 bytes (5.6 GiB)
+sha256 : c640dd48c49213841f63f085444f34530833a861a193e5fe9b61de82ea296692
+volume : KALI_AI_NATIVE_20261005   (ISO 9660, bootable, El Torito)
+rootfs : 2766 packages incl. kali-linux-core, kali-tools-*, burpsuite,
+         metasploit-framework, nodejs
+```
+
+### Boot — the ISO boots; the Hermes session is out of reach in this sandbox
+
+QEMU 7.2, kernel `7.1.5+kali-amd64`. The real serial console reaches systemd, `live-config`
+late userspace and networking at ~54 s, then QEMU is **OOM-killed (exit 137)** by the 2 GB
+cgroup `memory.max` — the guest plus QEMU overhead exceed it. Three attempts (2048/1024/640 MB
+guest) all reached the same point and were killed. The graphical Hermes session was **not**
+reached in-sandbox.
+
+* `bootable_iso: true` — the image is bootable and boots.
+* `hermes_session_reached: false` — blocked by the sandbox memory limit, not by the image.
+
+**To boot to Hermes:** on a host with ≥4 GB RAM free,
+`qemu-system-x86_64 -m 4096 -cdrom live-image-amd64.hybrid.iso` (or write it to a USB stick
+and boot it).
