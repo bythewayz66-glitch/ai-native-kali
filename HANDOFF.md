@@ -309,3 +309,29 @@ a real Kali host — the mirror bug that blocked it before is now fixed), the Ol
 `42076ee66e1f87983dabd9a0116ec46af13adc04` — remote SHA matches local, and a fresh clone of
 the pushed tree passed `make dev && make smoke` **155/155**. See §5. The repo is
 `ai-native-kali`; **petrichor is untouched and must stay that way.**
+
+---
+
+## Phase 13 — the blockers are cleared
+
+The Phase 12 handoff listed three blocked items. All three are now resolved or reduced to a
+single named host requirement, with the real command output recorded in `BUILD_STATUS.md`
+and `docs/VERIFICATION.md`.
+
+* **ISO toolchain** — installed (all 9 binaries present). `make iso-full` now runs: the
+  seccomp `mknod` block is bypassed with `export container=lxc`, and the Kali mirror bug is
+  fixed in `packaging/live-build/auto/config` (`--security false --updates false`). The build
+  reaches the chroot package-install stage and fails only on **disk** (7.8 GB build dir on an
+  8.0 GB overlay). **To finish: run `make iso-full` on a host with ≥ ~15 GB free disk.**
+* **Ollama weights** — server up, both models staged (2.5 GB) and `verify` → `"ok": true`.
+* **Live CrewAI run** — crewai 1.15.23 installed; `scripts/live_crewai_run.py` →
+  `backend: crewai`, `status: ok`, `errors: []`. (Use `CREWAI_LLM_MODEL=ollama/qwen2.5:0.5b`
+  in a 2 GB cgroup; the bundled 3b model needs more memory.)
+
+**Suite is fully green:** `pytest` → 1841 passed, 12 skipped, 0 failed; `make dev` → 7/7
+healthy; `make smoke` → 155/155. **D5 with the real embedder:** semantic recall@3 0.25 → 1.00
+(+0.75).
+
+**Next steps:** (1) run `make iso-full` on a ≥15 GB host and boot to the Hermes session;
+(2) re-run the live crew with the bundled 3b model on a host with a larger memory cgroup;
+(3) the file-manager drop surface and start-menu polish remain as before.

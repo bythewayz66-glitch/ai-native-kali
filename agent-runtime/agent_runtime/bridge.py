@@ -172,7 +172,21 @@ class Bridge:
         if adapter is None:
             from .crewai_adapter import CrewAIAdapter
 
-            adapter = CrewAIAdapter(tool_executor=self._execute_tool)
+            # The deterministic card path must stay deterministic unless a model
+            # is actually configured. ``prefer_real`` makes the adapter route
+            # ``run()`` through a live crewai LLM whenever the *package* is
+            # importable - so merely installing crewai (which the image does)
+            # would silently turn every card into a live model call, even with
+            # ``MODEL_ENABLED=0``. That is the wrong default: the model path is
+            # opt-in, and the deterministic path is what the smoke test and the
+            # dry-run guarantee depend on. So the real backend is enabled only
+            # when a model is configured; otherwise the adapter stays local.
+            from .model_client import ModelConfig
+
+            adapter = CrewAIAdapter(
+                tool_executor=self._execute_tool,
+                prefer_real=ModelConfig.from_env().enabled,
+            )
         self.adapter = adapter
 
         # -- Phase 3: model-driven crews behind the same card gate ---------

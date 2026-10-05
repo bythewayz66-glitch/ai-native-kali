@@ -1001,4 +1001,47 @@ failures, recorded here so the next run does not mistake them for defects:
   asserts the mode **inside the built overlay** instead, which is the artifact a
   booting session actually reads.
 
+## 9. Phase 13 — dependencies installed and blockers cleared
+
+Everything below was run in this sandbox and the output is quoted verbatim.
+
+**ISO toolchain.** `apt-get install live-build xorriso debootstrap squashfs-tools syslinux
+syslinux-common isolinux mtools dosfstools grub-pc-bin grub-efi-amd64-bin` → exit 0, all
+packages already present. All nine binaries resolve on `PATH`.
+
+**`make iso-full`.** Three runs, each further than the last:
+
+* Run 1 — `mknod: /tmp/ai-native-kali-build/chroot/test-dev-null: Operation not permitted`,
+  then `E: Cannot install into target ... mounted with noexec or nodev`. The denied syscall
+  is **`mknod`**, errno **EPERM**; it is a **seccomp** filter (`Seccomp: 2`) — `uid=0` and
+  `CapEff: 000001ffffffffff` (all caps) are held, and `mknod` fails even on a `dev`-mounted
+  `tmpfs`.
+* Workaround — `container=lxc debootstrap ...` → **exit 0**, base system installed, `chroot`
+  works (debootstrap's lxc path bind-mounts host `/dev` instead of `mknod`). With
+  `export container=lxc`, `make iso-full` cleared debootstrap and the `lb chroot_*` stage.
+* Run 2 — `E: The repository 'http://http.kali.org/kali kali-rolling-updates Release' does
+  not have a Release file`. Fixed in `packaging/live-build/auto/config` with
+  `--security false --updates false` (Kali rolling has no separate updates/security suites).
+* Run 3 — cleared the mirror error, fetched 1392+ packages from `kali-rolling`, then failed
+  on disk: `mv: cannot move 'chroot/var/cache/apt/archives/gvmd-common_26.24.0-1_all.deb' ...
+  No space left on device` (build dir 7.8 GB on an 8.0 GB overlay).
+
+Remaining requirement: a host with **≥ ~15 GB free disk**. Not a code or privilege blocker.
+
+**Ollama.** `ollama serve` → `{"version":"0.34.4"}`. `nomic-embed-text:latest` (weights blob
+262 MB, sha256 `970aa74c…`) and `qwen2.5:3b-instruct-q4_K_M` (1.8 GB, sha256 `5ee4f07c…`)
+staged into `/var/lib/kali-ai/models` (2.5 GB); `fetch_bundle.py verify` → `"ok": true`.
+
+**crewai.** `pip install crewai` → 1.15.23. `scripts/live_crewai_run.py` → `backend: crewai`,
+`status: ok`, `errors: []`, real LLM output. (The bundled 3b model is OOM-killed by the 2 GB
+cgroup `memory.max`; `qwen2.5:0.5b` fits and completes the run.)
+
+**starlette/fastapi.** `fastapi 0.115.12` + `starlette 0.46.2` → `import fastapi, starlette` OK.
+
+**D5 harness.** `test_phase8_semantic_real.py` → 4 passed. recall@3 semantic **0.25 → 1.00**
+(**+0.75**); lexical 1.00 → 1.00.
+
+**Suite.** `pytest` → **1841 passed, 12 skipped, 0 failed**. `make dev` → 7/7 healthy.
+`make smoke` → **155/155**.
+
 

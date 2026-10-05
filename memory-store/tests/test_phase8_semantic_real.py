@@ -28,6 +28,13 @@ from memory_store.vector import HashingEmbedder, OllamaEmbedder
 EMBED_URL = os.environ.get("MEMORY_EMBED_URL", "http://127.0.0.1:11434")
 EMBED_MODEL = os.environ.get("MEMORY_EMBED_MODEL", "nomic-embed-text")
 
+#: A real embedding model on a CPU-only host is genuinely slow: ``nomic-embed-text``
+#: measured ~34 s per call on this 2-core sandbox, and the harness makes 13 calls
+#: per ``measure_with`` (5 memories + 8 probes). The default 60 s timeout is a
+#: statement about a *stub* embedder, not a real one, so these tests carry their
+#: own budget rather than being marked as failures for being honest.
+pytestmark = pytest.mark.timeout(1800)
+
 
 def _live_embedder() -> OllamaEmbedder:
     """An embedder pointed at the endpoint, or skip if it does not answer."""

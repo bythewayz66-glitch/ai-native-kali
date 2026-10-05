@@ -449,10 +449,16 @@ def main() -> int:
 
         recalled = c.get(f"{MEMORY}/recall", params={"q": "apache cve", "engagement": eng, "mode": "vector"}).json()
         record("vector recall finds the stored fact", recalled["count"] >= 1, f"count={recalled['count']}")
+        # "Honestly" means the recall path reports the *same* backend the store
+        # says is live - not a hardcoded name. On a host with no embedding
+        # endpoint that is hashing-blake2b; on a host running Ollama it is
+        # ollama:<model>. Asserting a fixed name made this a claim about the
+        # sandbox rather than about the code.
+        live_backend = c.get(f"{MEMORY}/embedder").json().get("backend")
         record(
             "vector recall reports its backend honestly",
-            recalled.get("vector_backend") == "hashing-blake2b",
-            f"backend={recalled.get('vector_backend')}",
+            bool(live_backend) and recalled.get("vector_backend") == live_backend,
+            f"backend={recalled.get('vector_backend')} (live={live_backend})",
         )
         top = recalled["hits"][0]
         record("a recalled hit carries a similarity score", isinstance(top.get("score"), (int, float)), f"score={top.get('score')}")

@@ -41,8 +41,16 @@ from memory_store.vector import (
 # --------------------------------------------------------------- fixtures
 @pytest.fixture(autouse=True)
 def _clean_embedder():
-    """Every test starts from env-driven default and leaves it as it found it."""
-    reset_embedder()
+    """Every test starts from the deterministic hashing backend and leaves the
+    process-wide choice as it found it.
+
+    The module's assertions are about the *store's* behaviour, not about whether
+    the host happens to be running an embedding endpoint. Pinning the backend
+    here keeps the suite hermetic: without it, ``auto`` selects Ollama on a host
+    that has it, and a lexical query can legitimately return nothing - which is
+    a claim about the sandbox, not about the code.
+    """
+    set_embedder(HashingEmbedder())
     yield
     reset_embedder()
 
@@ -86,9 +94,15 @@ def _fake_response(embedding: list[float]) -> io.BytesIO:
 # ------------------------------------------------------- backend selection
 class TestBackendSelection:
     def test_default_is_the_deterministic_hashing_vectoriser(self):
-        impl = load_embedder_from_env({})
+        # The *default* is the hashing vectoriser, but the process-wide choice is
+        # resolved from the environment with ``auto`` semantics: on a host that
+        # happens to be running Ollama, ``auto`` legitimately selects the model.
+        # Asserting the default therefore means asking for it explicitly, not
+        # asserting a property of whatever host the suite runs on.
+        impl = load_embedder_from_env({"MEMORY_EMBEDDER": "hashing"})
         assert isinstance(impl, HashingEmbedder)
         assert impl.name == "hashing-blake2b"
+        set_embedder(impl)
         assert vector_backend() == "hashing-blake2b"
 
     def test_env_selects_the_ollama_endpoint(self):
@@ -238,6 +252,11 @@ class TestDegradation:
 # ------------------------------------------------- drift: swap and repair
 class TestBackendDriftAndRepair:
     def test_store_reports_the_active_backend_and_no_drift(self):
+        # Pin the backend so the assertion is about the store's bookkeeping, not
+        # about whether this host has a live embedding endpoint. Without this the
+        # test silently becomes a claim about the sandbox (it passed only while
+        # Ollama was absent) - the same isolation defect the preflight test had.
+        set_embedder(HashingEmbedder())
         store = MemoryStore(":memory:")
         try:
             store.record(engagement="eng-a", summary="SMB exposed on 445")

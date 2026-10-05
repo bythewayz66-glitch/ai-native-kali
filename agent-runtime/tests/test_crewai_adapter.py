@@ -145,6 +145,21 @@ def fake_crewai_broken(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
     return module
 
 
+@pytest.fixture
+def no_crewai(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Force the *absent* branch even on a host where crewai is installed.
+
+    The absent branch is a real code path (a laptop with no crewai, a key-free
+    CI runner), so it must be tested on every host - not only on the ones that
+    happen to lack the package. Setting ``sys.modules['crewai'] = None`` makes
+    ``import crewai`` raise ``ImportError``, which is exactly what the adapter's
+    lazy import sees on a host without it. Without this, installing crewai for
+    the live-run work would silently turn these tests into assertions about the
+    *present* branch.
+    """
+    monkeypatch.setitem(sys.modules, "crewai", None)
+
+
 # ------------------------------------------------------------------ executor
 class RecordingExecutor:
     def __init__(self, status: str = "dry_run") -> None:
@@ -185,19 +200,18 @@ def _card(**overrides: Any) -> dict[str, Any]:
 
 # ============================================================ absent branch
 class TestCrewAIAbsent:
-    """The real state of this sandbox: crewai is not installed."""
+    """The absent branch, forced on every host via the ``no_crewai`` fixture."""
 
-    @pytest.mark.skipif(crewai_available(), reason="crewai is installed; the absent branch is not the default here")
-    def test_absent_branch_is_the_real_default(self) -> None:
+    def test_absent_branch_is_the_real_default(self, no_crewai: None) -> None:
         assert crewai_available() is False
         assert crewai_version() is None
 
-    def test_adapter_reports_local_without_crewai(self) -> None:
+    def test_adapter_reports_local_without_crewai(self, no_crewai: None) -> None:
         adapter = CrewAIAdapter(tool_executor=RecordingExecutor())
         assert adapter.backend == "local"
         assert adapter.crewai_available is False
 
-    def test_local_run_still_executes_the_card(self) -> None:
+    def test_local_run_still_executes_the_card(self, no_crewai: None) -> None:
         executor = RecordingExecutor()
         adapter = CrewAIAdapter(tool_executor=executor)
         result = adapter.run(get_crew("recon"), _card(), role_lookup=get_role, scope=SCOPE)
@@ -205,7 +219,7 @@ class TestCrewAIAbsent:
         assert result.status == "ok"
         assert [c[0] for c in executor.calls] == ["whois_lookup", "dns_lookup"]
 
-    def test_run_plan_refuses_rather_than_pretending(self) -> None:
+    def test_run_plan_refuses_rather_than_pretending(self, no_crewai: None) -> None:
         adapter = CrewAIAdapter(tool_executor=RecordingExecutor())
         with pytest.raises(RuntimeError, match="not importable"):
             adapter.run_plan(
@@ -219,10 +233,12 @@ class TestCrewAIAbsent:
         """Importing and constructing the adapter must not need crewai.
 
         Run in a subprocess so the assertion is about a clean interpreter, not
-        about whatever this test session has already imported.
+        about whatever this test session has already imported. The subprocess
+        blocks the package itself (``sys.modules['crewai'] = None``) so the
+        assertion holds on a host where crewai *is* installed.
         """
         code = (
-            "import sys; sys.path.insert(0, 'agent-runtime');"
+            "import sys; sys.modules['crewai'] = None; sys.path.insert(0, 'agent-runtime');"
             "from agent_runtime.crewai_adapter import CrewAIAdapter, crewai_available;"
             "a = CrewAIAdapter(tool_executor=lambda *a, **k: {});"
             "print(a.backend, crewai_available())"
@@ -244,7 +260,15 @@ class TestCrewAIPresent:
         assert adapter.crewai_available is True
 
     def test_version_is_reported(self, fake_crewai: types.ModuleType) -> None:
-        assert crewai_version() == "0.60.0"
+        """The reported version is the *installed* one, not a hardcoded pin.
+
+        ``crewai_version`` reads distribution metadata, so it must track whatever
+        is actually installed (0.x or 1.x) rather than a version this test
+        happens to remember.
+        """
+        from importlib.metadata import version
+
+        assert crewai_version() == version("crewai")
 
     def test_run_executes_the_card_bound_tools(self, fake_crewai: types.ModuleType) -> None:
         executor = RecordingExecutor()
@@ -385,7 +409,7 @@ class TestModelPathThroughCrewAI:
         assert [c[0] for c in executor.calls] == ["whois_lookup"], "the card must still move"
         assert result.status == "ok"
 
-    def test_without_crewai_the_deterministic_executor_runs(self) -> None:
+    def test_without_crewai_the_deterministic_executor_runs(self, no_crewai: None) -> None:
         reply = {"steps": [{"role": "recon-specialist", "tool": "whois_lookup",
                             "args": {"target": "scanme.nmap.org"}}]}
         executor = RecordingExecutor()

@@ -211,9 +211,21 @@ class TestPreflight:
         assert result["missing_tools"] == []
 
     def test_on_this_host_the_preflight_reports_the_real_blocker(self):
-        """The honest check: this sandbox cannot build the ISO, and the preflight
-        must be the thing that says so - not a prose claim in a report."""
+        """The honest check: the preflight must report *this host's* real state.
+
+        On a host without the ISO toolchain it must say so (``ok`` False, the
+        blocker named); on a host that has them it must say ``ok`` True. The
+        earlier version asserted a fixed ``False``, which made the test a claim
+        about the sandbox rather than about the preflight - so it failed the
+        moment the toolchain was actually installed, which is the opposite of
+        what a preflight test should do.
+        """
+        import shutil
+
         result = preflight()
-        assert result["ok"] is False
-        # Whatever is missing, it must be named.
-        assert result["missing_tools"] or result["profile_problems"]
+        tools_present = all(shutil.which(t) for t in ("lb", "xorriso", "debootstrap"))
+        assert result["ok"] is (tools_present and not result["profile_problems"])
+        # Whatever is missing, it must be named - a preflight that fails without
+        # saying why is just a slower failure.
+        if not result["ok"]:
+            assert result["missing_tools"] or result["profile_problems"]

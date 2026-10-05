@@ -28,6 +28,8 @@ from memory_store.vector import (
     VectorIndex,
     cosine,
     embed,
+    reset_embedder,
+    set_embedder,
     tokenize,
     vector_backend,
 )
@@ -38,9 +40,15 @@ OTHER = "ENG-OTHER"
 
 @pytest.fixture()
 def store():
+    # Pin the deterministic hashing backend for the whole fixture. The store
+    # otherwise resolves the process-wide embedder with ``auto`` semantics, which
+    # on a host running Ollama selects the model - making these assertions claims
+    # about the sandbox rather than about the store. Restored on teardown.
+    set_embedder(HashingEmbedder())
     s = MemoryStore(":memory:")
     yield s
     s.close()
+    reset_embedder()
 
 
 def _seed(store: MemoryStore, engagement: str = ENG) -> None:
@@ -152,6 +160,7 @@ def test_embedder_protocol_is_swappable():
     index = VectorIndex(_conn_for(), embedder=StubEmbedder())
     assert index._embedder.name == "stub"
     assert HashingEmbedder().dim == DIM
+    set_embedder(HashingEmbedder())
     assert vector_backend() == "hashing-blake2b"
 
 

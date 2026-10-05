@@ -27,12 +27,33 @@ with no code change.
 from __future__ import annotations
 
 import json
+import os
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
 from .crews import CrewDef
 from .roles import AgentRole
+
+
+def _crewai_tool_decorator(crewai: Any) -> Any:
+    """The ``@tool`` decorator, wherever the installed crewai keeps it.
+
+    crewai 0.x exposed ``crewai.tool``; 1.x moved it to ``crewai.tools.tool``.
+    Resolving it here rather than at the call site means the adapter works with
+    both, instead of raising ``AttributeError: module 'crewai' has no attribute
+    'tool'`` on a modern install - which is exactly what a real ``pip install
+    crewai`` produced.
+    """
+    decorator = getattr(crewai, "tool", None)
+    if decorator is not None:
+        return decorator
+    try:
+        from crewai.tools import tool as _tool
+
+        return _tool
+    except Exception:
+        return None
 
 
 def crewai_available() -> bool:
@@ -51,7 +72,15 @@ def crewai_version() -> Optional[str]:
     Reported on ``/health`` so an operator can tell *which* crewai a run used
     rather than only that one was present - a version skew is the usual cause of
     an adapter that imports but misbehaves.
+
+    Gated on :func:`crewai_available` first, so the answer agrees with the
+    backend the adapter would actually pick. Reading distribution metadata
+    unconditionally would report a version even when the package cannot be
+    imported (a broken install, or a test that blocks the module), which is
+    exactly the "imports but misbehaves" case this is meant to expose.
     """
+    if not crewai_available():
+        return None
     try:
         from importlib.metadata import version
 
@@ -131,10 +160,20 @@ class CrewAIAdapter:
         tool_executor: Callable[[str, dict[str, Any]], dict[str, Any]],
         prefer_real: bool = True,
         verbose: bool = False,
+        llm_model: Optional[str] = None,
+        llm_base_url: Optional[str] = None,
     ) -> None:
         self.tool_executor = tool_executor
         self.prefer_real = prefer_real
         self.verbose = verbose
+        #: The model the crewai agents use. Defaults to the bundled instruct
+        #: model on the local Ollama endpoint, but overridable so a host can
+        #: point the live run at whatever it actually has (a different tag, a
+        #: remote endpoint) without editing the adapter.
+        self.llm_model = llm_model or os.environ.get("CREWAI_LLM_MODEL", "ollama/llama3.1")
+        self.llm_base_url = llm_base_url or os.environ.get(
+            "CREWAI_LLM_BASE_URL", "http://127.0.0.1:11434"
+        )
         #: Lazily resolved: ``None`` until the first backend query, then either
         #: the imported module or ``None``. Never imported at module scope.
         self._crewai: Any = None
@@ -143,12 +182,25 @@ class CrewAIAdapter:
         #: carry the same per-call detail (status, audit hash, command) the
         #: deterministic backend records. Reset at the start of every run.
         self._last_calls: list[dict[str, Any]] = []
+        #: Per-request timeout and completion cap for the crewai LLM. A CPU-only
+        #: host running a small model can take minutes per completion, and
+        #: crewai's default request timeout is far shorter than that - so the
+        #: live path would time out and fall back even though the model is
+        #: healthy. Both are overridable from the environment so a slow host can
+        #: raise them without editing the adapter.
+        self.llm_timeout = float(os.environ.get("CREWAI_LLM_TIMEOUT", "600"))
+        self.llm_max_tokens = int(os.environ.get("CREWAI_LLM_MAX_TOKENS", "512"))
         self.llm = None
         if self.backend == "crewai":  # pragma: no cover - needs the real package
             try:
                 from crewai import LLM
 
-                self.llm = LLM(model="ollama/llama3.1", base_url="http://127.0.0.1:11434")
+                self.llm = LLM(
+                    model=self.llm_model,
+                    base_url=self.llm_base_url,
+                    timeout=self.llm_timeout,
+                    max_tokens=self.llm_max_tokens,
+                )
             except Exception:
                 self.llm = None
 
@@ -249,7 +301,7 @@ class CrewAIAdapter:
         Task = getattr(crewai, "Task")
         Crew = getattr(crewai, "Crew")
         Process = getattr(crewai, "Process")
-        crewai_tool = getattr(crewai, "tool")
+        crewai_tool = _crewai_tool_decorator(crewai)
 
         started = time.monotonic()
         self._last_calls = []
@@ -319,7 +371,7 @@ class CrewAIAdapter:
         Task = getattr(crewai, "Task")
         Crew = getattr(crewai, "Crew")
         Process = getattr(crewai, "Process")
-        crewai_tool = getattr(crewai, "tool")
+        crewai_tool = _crewai_tool_decorator(crewai)
 
         card_tools = {t.get("name"): t for t in (card.get("tools") or []) if isinstance(t, dict)}
         self._last_calls = []
