@@ -46,6 +46,16 @@ from .scope_model import (
     resolve_child_scope,
     validate_child,
 )
+from .dependencies import (
+    DEPENDS_ON_KEY,
+    DependencyCodes,
+    DependencyError,
+    build_tree,
+    dependency_ids,
+    dependency_reasons,
+    edge_problems,
+    is_satisfied,
+)
 from .store import Store
 
 
@@ -130,6 +140,115 @@ class KanbanService:
             "total": len(cards),
         }
 
+    # ----------------------------------------------------- dependencies
+    def _dependency_graph(self, board_id: Optional[str] = None) -> dict[str, list[str]]:
+        """Every dependency edge in scope, as an adjacency map.
+
+        Built from the store rather than kept as a separate index: the graph is
+        small (a board's cards), it must never disagree with the cards, and a
+        derived structure that can drift from its source is one that eventually
+        does. A cycle check reads it once per edge added, which is cheap.
+        """
+        edges: dict[str, list[str]] = {}
+        for card in self.store.list_cards(board_id=board_id, limit=100000):
+            deps = dependency_ids(card)
+            if deps:
+                edges[card.card_id] = deps
+        return edges
+
+    def _dependency_guard(self, card: Card, target: Column) -> list[str]:
+        """Dependency reasons that would hold *card* back from *target*."""
+        if target is not Column.RUNNING:
+            return []
+        deps = [self.store.get_card(dep_id) for dep_id in dependency_ids(card)]
+        return dependency_reasons(
+            card, target.value, dependencies=[d for d in deps if d is not None]
+        )
+
+    def add_dependency(
+        self,
+        card_id: str,
+        depends_on: str,
+        *,
+        actor: str = "system",
+    ) -> Card:
+        """Record that *card_id* waits for *depends_on*.
+
+        Both structural failures are refused here, when the edge is created: a
+        self-edge and a cycle would each deadlock every card in the loop, and a
+        deadlock discovered at move time is a board that has already been wrong
+        for a while.
+        """
+        card = self.get_card(card_id)
+        self.get_card(depends_on)  # 404 if the prerequisite does not exist
+        edges = self._dependency_graph()
+        reasons = edge_problems(card_id, depends_on, edges=edges)
+        if reasons:
+            raise DependencyError(
+                f"cannot make {card_id} depend on {depends_on}", reasons=reasons
+            )
+
+        deps = dependency_ids(card)
+        if depends_on not in deps:
+            deps.append(depends_on)
+        card.meta = {**(card.meta or {}), DEPENDS_ON_KEY: deps}
+        self.store.save_card(card)
+        self._emit(
+            EventType.CARD_DEPENDENCY_ADDED,
+            card=card,
+            actor=actor,
+            payload={"depends_on": depends_on, "depends_on_total": len(deps)},
+        )
+        self.store.save_card(card)
+        return card
+
+    def remove_dependency(
+        self,
+        card_id: str,
+        depends_on: str,
+        *,
+        actor: str = "system",
+    ) -> Card:
+        """Drop a dependency edge. Idempotent - removing an absent edge is fine.
+
+        Removal is never gated: an operator clearing a bad edge must not have to
+        satisfy it first, and the only thing that depends on the edge is this
+        card, which cannot run while the edge is unmet anyway.
+        """
+        card = self.get_card(card_id)
+        deps = [d for d in dependency_ids(card) if d != depends_on]
+        card.meta = {**(card.meta or {}), DEPENDS_ON_KEY: deps}
+        self.store.save_card(card)
+        self._emit(
+            EventType.CARD_DEPENDENCY_REMOVED,
+            card=card,
+            actor=actor,
+            payload={"depends_on": depends_on, "depends_on_total": len(deps)},
+        )
+        self.store.save_card(card)
+        return card
+
+    def card_tree(self, card_id: str, *, max_depth: int = 8) -> dict[str, Any]:
+        """The card, its spawned children and its blockers, as one tree.
+
+        One snapshot so the two relationships cannot disagree in the render, and
+        so the board does not have to make N+1 round trips to draw one card.
+        """
+        root = self.get_card(card_id)
+        return build_tree(
+            root,
+            children_by_parent=self._children_by_parent(root.board_id),
+            cards_by_id={c.card_id: c for c in self.store.list_cards(board_id=root.board_id, limit=100000)},
+            max_depth=max_depth,
+        )
+
+    def _children_by_parent(self, board_id: str) -> dict[str, list[Card]]:
+        out: dict[str, list[Card]] = {}
+        for card in self.store.list_cards(board_id=board_id, limit=100000):
+            if card.parent_id:
+                out.setdefault(card.parent_id, []).append(card)
+        return out
+
     # -------------------------------------------------------------- cards
     def create_card(
         self,
@@ -182,6 +301,18 @@ class KanbanService:
             # Creating straight into a later column (used by child-card spawning).
             card.column = target_column
             card.entered_column_at = utcnow()
+
+        # Phase 16: a card may be created already waiting on others. Each named
+        # prerequisite must exist - a card waiting on a card nobody can find
+        # would sit forever at a guard with no explanation.
+        for dep_id in dependency_ids(card):
+            if self.store.get_card(dep_id) is None:
+                raise DependencyError(
+                    f"card depends on unknown card {dep_id}",
+                    reasons=[
+                        f"{DependencyCodes.MISSING}: depends on {dep_id}, which does not exist"
+                    ],
+                )
 
         self.store.save_card(card)
         self._emit(
@@ -325,6 +456,24 @@ class KanbanService:
         data["child_count"] = len(children)
         data["open_child_count"] = len(open_children(children))
         data["parent_killed"] = bool(parent is not None and parent.killed)
+        # Phase 16: what this card is waiting on. The board draws blockers next to
+        # spawned work, and the bridge reads them to decide whether a card can be
+        # dispatched without a second store round trip.
+        blockers = []
+        for dep_id in dependency_ids(card):
+            dep = self.store.get_card(dep_id)
+            blockers.append(
+                {
+                    "card_id": dep_id,
+                    "title": dep.title if dep else None,
+                    "column": dep.column.value if dep else None,
+                    "satisfied": bool(dep and is_satisfied(dep)),
+                    "missing": dep is None,
+                }
+            )
+        data["depends_on"] = [b["card_id"] for b in blockers]
+        data["blockers"] = blockers
+        data["waiting"] = any(not b["satisfied"] for b in blockers)
         return data
 
     # ------------------------------------------------------------- moves
@@ -343,6 +492,16 @@ class KanbanService:
 
         allowed = AGENT_WRITABLE if actor_is_agent else None
         parent, children = self._family(card)
+        # Phase 16: a card whose prerequisite has not finished may not start.
+        # Only ``Running`` is gated - a card must be able to reach Done once its
+        # prerequisite has landed, and blocking that would deadlock the board.
+        # ``force=True`` is the operator override, recorded as such below.
+        if not force:
+            dep_reasons = self._dependency_guard(card, target)
+            if dep_reasons:
+                raise TransitionError(
+                    f"card {card_id} is waiting on unfinished work", reasons=dep_reasons
+                )
         validate_transition(
             card, target, force=force, allowed=allowed, parent=parent, children=children
         )

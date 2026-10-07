@@ -27,6 +27,7 @@ from typing import Any, Callable, Optional
 
 from .client import KanbanClient, KanbanError
 from .crews import CrewDef, crew_for_board, get_crew
+from .crew_preflight import preflight_crew
 from .roles import AgentRole, get_role
 
 
@@ -156,11 +157,20 @@ class Bridge:
         gate: Any = None,
         memory: Any = None,
         memory_engagement: Optional[str] = None,
+        preflight_crews: bool = True,
+        tool_registry: Any = None,
     ) -> None:
         self.client = client or KanbanClient()
         self.agent_name = agent_name
         self.max_tier = max_tier
         self.respect_gates = respect_gates
+        #: Phase 16: verify a crew can run before dispatching it. On by default -
+        #: a crew with a missing tool binding or an over-ceiling tool cannot run
+        #: correctly, and catching it at dispatch is far cheaper than mid-run.
+        self.preflight_crews = preflight_crews
+        #: Injectable so a caller that already holds the registry shares it, and
+        #: so tests can exercise the failure modes without the tool layer.
+        self._tool_registry = tool_registry
         self.stats = BridgeStats()
         self._executor = tool_executor
         #: Idempotency + single-flight for the event-driven path: the socket
@@ -468,6 +478,21 @@ class Bridge:
         crew = self._resolve_crew(card)
         role = self._resolve_role(card, crew)
         gate = self._gate_state(card)
+
+        # --- crew pre-flight ---------------------------------------------
+        # A crew whose tool bindings do not exist, or exceed its own tier
+        # ceiling, cannot run correctly, and the failure would otherwise surface
+        # as a confusing mid-run error. Checked *before* the approval gate so an
+        # operator is never asked to approve a run that cannot happen.
+        if self.preflight_crews:
+            report = preflight_crew(crew, registry=self._tool_registry)
+            if not report.ok:
+                self.stats.runs_blocked += 1
+                reason = "crew pre-flight failed: " + "; ".join(report.problems)
+                self._block(card_id, reason)
+                return CardOutcome(
+                    card_id=card_id, status="blocked", column="Blocked", crew=crew.name, reasons=[reason]
+                )
 
         # --- human-in-the-loop gate --------------------------------------
         if self.respect_gates:

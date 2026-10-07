@@ -317,6 +317,17 @@ def graph_entities(
     return {"engagement": eng, "count": len(rows), "entities": rows}
 
 
+@app.get("/graph/entity")
+def graph_entity(
+    engagement: Optional[str] = Query(None, description="Required: memory is scoped per engagement"),
+    entity: str = Query(..., description="The entity name or id to drill into"),
+    limit: int = Query(200, ge=1, le=2000),
+) -> dict[str, Any]:
+    """Everything known about one entity, grouped by predicate (Phase 16)."""
+    eng = _require_engagement(engagement)
+    return _store().graph_entity_profile(eng, entity, limit=limit)
+
+
 @app.get("/graph/stats")
 def graph_stats(
     engagement: Optional[str] = Query(None, description="Required: memory is scoped per engagement"),

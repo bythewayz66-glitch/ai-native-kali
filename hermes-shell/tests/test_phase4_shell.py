@@ -506,7 +506,15 @@ class TestWindowManager:
 class TestWindowRoutes:
     def test_desktop_starts_empty(self, client):
         body = client.get("/api/windows").json()
-        assert body == {"windows": [], "stack": [], "focused": None, "taskbar": [], "count": 0}
+        # Phase 16 added the virtual-desktop fields, so this compares the parts
+        # that mean "empty" rather than pinning the whole payload shape.
+        assert body["windows"] == []
+        assert body["stack"] == []
+        assert body["focused"] is None
+        assert body["taskbar"] == []
+        assert body["count"] == 0
+        assert body["workspace"] == 0
+        assert body["workspaces"] >= 1
 
     def test_open_focus_and_close_over_http(self, client):
         a = client.post("/api/windows", json={"action": "open", "app": "kanban", "title": "Kanban"}).json()

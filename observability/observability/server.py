@@ -47,12 +47,14 @@ def build_app(
     app.state.collector = col
 
     stop_event = threading.Event()
-    state: dict[str, Any] = {"running": False, "audit_cursor": 0}
+    # Phase 16: seeded from the collector's *persisted* cursor, so a restart
+    # resumes the audit chain instead of replaying it from seq 0.
+    state: dict[str, Any] = {"running": False, "audit_cursor": col.cursor("audit")}
 
     def _poll_once() -> dict[str, int]:
         events = col.ingest_kanban_events()
         traces = col.ingest_kanban_traces()
-        audit, new_cursor = col.ingest_tool_audit(since_seq=state["audit_cursor"])
+        audit, new_cursor = col.ingest_tool_audit()
         state["audit_cursor"] = new_cursor
         col.last_poll_at = __import__("time").time()
         return {"events": events, "traces": traces, "audit": audit}

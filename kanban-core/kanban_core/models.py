@@ -376,6 +376,11 @@ class EventType:
     #: Both are recorded - a refusal an operator cannot see is one they re-attempt.
     CARD_SUBCARD_CREATED = "card.subcard.created"
     CARD_SUBCARD_REFUSED = "card.subcard.refused"
+    #: Phase 16: a card gained or dropped a dependency edge. Recorded because
+    #: "why was this card waiting" has to be answerable from the chain alone -
+    #: the card's own column never says it, since waiting is not a column.
+    CARD_DEPENDENCY_ADDED = "card.dependency.added"
+    CARD_DEPENDENCY_REMOVED = "card.dependency.removed"
 
 
 class AuditRecord(BaseModel):

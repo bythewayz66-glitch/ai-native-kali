@@ -24,6 +24,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
 from .agent_desktop import DesktopManager
 from .attach import artifact_payload, entry_from_drop
+from .file_manager import BrowseRefused, FileManager
 from .launcher import AppRegistry, Launcher, build_registry
 from .overlay import OverlayClient, collect, compose, probe_services
 from .setup_wizard import SetupWizard, probe_readiness
@@ -103,6 +104,20 @@ def build_app(*, autostart: bool = False) -> FastAPI:  # noqa: ARG001 - symmetry
         return _launcher_cache["l"]
 
     _audit_cache: dict[str, Any] = {}
+
+    #: The file manager is a singleton like the window manager and launcher, and
+    #: it is *stateless* besides its configuration - so one instance is enough and
+    #: rebuilding it per request would only re-normalise the roots each time. The
+    #: roots come from the environment so an image can widen or narrow them
+    #: without a code change; the default stays narrow (see file_manager).
+    _fm_cache: dict[str, Any] = {}
+
+    def _files() -> FileManager:
+        if "fm" not in _fm_cache:
+            raw = os.environ.get("SHELL_FILE_ROOTS", "")
+            roots = tuple(r for r in raw.split(":") if r) or None
+            _fm_cache["fm"] = FileManager(roots=roots) if roots else FileManager()
+        return _fm_cache["fm"]
 
     def _audit() -> Any:
         """The tool audit log for drop events.
@@ -332,6 +347,47 @@ def build_app(*, autostart: bool = False) -> FastAPI:  # noqa: ARG001 - symmetry
             # A refused launch is a policy outcome, not a server error.
             return JSONResponse({"detail": str(exc)}, status_code=403)
         return JSONResponse(result)
+
+    # ------------------------------------------- file manager (item 9)
+    @app.get("/api/files")
+    def files_list(path: str = "") -> JSONResponse:
+        """Browse the filesystem, confined to the configured roots (Phase 16).
+
+        No ``path`` returns just the status - the roots and their readability -
+        which is what the surface needs to draw its tree root. With a ``path`` it
+        returns that directory's listing.
+
+        A path outside the roots is a **403 with a reason**, not a 500: it is a
+        policy outcome, like a refused launch, and treating it as a server error
+        would both mislead the caller and invite a retry.
+        """
+        manager = _files()
+        status = manager.status()
+        if not path:
+            return JSONResponse({**status, "path": None, "entries": [], "count": 0})
+        try:
+            listing = manager.list_dir(path)
+        except BrowseRefused as exc:
+            return JSONResponse({"detail": exc.reason, **status}, status_code=403)
+        return JSONResponse(listing)
+
+    @app.get("/api/files/preview")
+    def files_preview(path: str, max_bytes: int = 0) -> JSONResponse:
+        """Read the head of a text file, for a preview pane. Refuses binary."""
+        try:
+            body = _files().read_preview(path, max_bytes=max_bytes or None)
+        except BrowseRefused as exc:
+            return JSONResponse({"detail": exc.reason}, status_code=403)
+        return JSONResponse(body)
+
+    @app.get("/api/files/search")
+    def files_search(path: str, q: str, limit: int = 200) -> JSONResponse:
+        """Name search, one level deep - a recursive walk is unbounded work."""
+        try:
+            body = _files().search(path, q, limit=max(1, min(limit, 1000)))
+        except BrowseRefused as exc:
+            return JSONResponse({"detail": exc.reason}, status_code=403)
+        return JSONResponse(body)
 
     # ------------------------------------------- target drop (item 2)
     @app.post("/api/target-drop", status_code=201)

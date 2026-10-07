@@ -1440,3 +1440,99 @@ reached in-sandbox.
 **To boot to Hermes:** on a host with ≥4 GB RAM free,
 `qemu-system-x86_64 -m 4096 -cdrom live-image-amd64.hybrid.iso` (or write it to a USB stick
 and boot it).
+
+---
+
+## Phase 16 (2026-10-07) — gaps closed, 11 features, RC1 release artifact
+
+**Test suite: 2161 collected, 2154 passed, 0 failed, 0 errors, 17 skipped**
+(Phase 15 baseline: 1936 passed / 16 skipped). Authoritative count from
+`pytest … --junitxml` → `JUNIT tests=2161 failures=0 errors=0 skipped=17`.
+
+**Smoke: 156/156** · **scope audit: PASS** (53 hostile live runs, 53 refused, 0 offenders) ·
+**crew/role audit: 0 offenders** (7 roles, 5 crews, 14 bindings, 0 dangling) ·
+**7/7 services healthy** · **tool wrappers: 74**.
+
+### Features closed (11)
+
+1. **Card dependencies** — new `kanban-core/kanban_core/dependencies.py`. A card declares
+   `meta.depends_on`; entering **Running** is refused while any prerequisite is unfinished, and
+   the reason names the blocking card. A self-edge or a cycle is refused **when the edge is
+   created** (409), because either deadlocks every card in the loop. `depends_on`/`blockers`/
+   `waiting` are surfaced on the card view. *22 tests.*
+2. **Card tree endpoint** — `GET /api/cards/{id}/tree`: the card, its spawned children and its
+   blockers in one snapshot, so the two relationships cannot disagree in the render and the
+   board does not need N+1 round trips.
+3. **Broader graph extraction** — `memory_store/graph.py` now recognises `url`, `email`, `hash`,
+   `port`, `user` and `platform` node kinds alongside host/FQDN/CVE/product/service. Digests are
+   taken **longest-first** so a 64-char SHA-256 is not also registered as two MD5s, and a port
+   node requires `host:port` so a timestamp (`12:30`) is not mistaken for one. Still deterministic
+   patterns, never inference — a guessed node is a false fact in a security report.
+4. **Entity drill-down** — `GET /graph/entity` (`graph_entity_profile`): one entity's relations
+   grouped by predicate with resolved counterpart nodes, plus neighbouring-kind counts, so a node
+   click can show “3 credentials, 2 CVEs” without the caller regrouping a flat edge list.
+   Unscoped reads are refused.
+5. **T1 scope floor enforced** — see defect #24.
+6. **Scope-declaration triage audit** — `Registry.audit_scope_declarations()`, reported from
+   `summary()`, which the MCP server and the shell already call, so it is not something anyone
+   has to remember to run.
+7. **Virtual desktops** — `hermes-shell/hermes_shell/wm.py`: 4 desktops, `switch_workspace`,
+   `move_to_workspace`, and a snapshot/taskbar/focus model scoped per desktop. Focus is
+   **recomputed on switch** so it can never point at a window on a desktop the user is not
+   looking at. *18 tests.*
+8. **Tiling** — `tile(columns=…, gap=…)` with a near-square default grid; maximised windows are
+   un-maximised first (a window filling the screen cannot also occupy one cell).
+9. **File-manager browse surface** — new `hermes-shell/hermes_shell/file_manager.py` +
+   `GET /api/files`, `/api/files/preview`, `/api/files/search`. Read-only, root-confined, and the
+   path is **resolved (symlinks included) before** the prefix test. It exposes no mutating
+   operation at all, pinned by a test. *24 tests.*
+10. **Crew pre-flight** — new `agent_runtime/agent_runtime/crew_preflight.py`, wired into
+    `Bridge.claim`. A crew whose step names an unregistered tool, or a tool above the crew's
+    ceiling or above the bridge's max-tier, is refused **before dispatch** and recorded in the
+    same hash-chained tool audit log as a guardrail refusal. *16 tests.*
+11. **Smoke determinism** — see defect #27.
+
+### Defects found and fixed (4)
+
+- **#24 — T1 scope escape (real, reproduced live).** `guardrails.evaluate` never consulted the
+  `scope_is_required` floor it documents: every coverage check read `spec.requires_scope`
+  directly, so a T1 tool that under-declared the flag had its target check switched **off**.
+  Reproduced — `nmap_scan` (tier 1, `requires_scope=False`) run **live** against `evil.net` with
+  a scope covering only `example.com` returned `allowed=True, reasons=[]`. The floor is now OR'd
+  into the coverage checks (it can only make a check stricter). Behavioural proof added: a
+  hostile live sweep over **every** registered tool — **53/53 refused, 0 offenders**.
+- **#25 — `cycle()` could focus an off-desktop window.** The MRU list was not filtered by
+  desktop, so `cycle()` after a desktop switch moved focus to a window the user could not see.
+  Caught by the new WM tests; fixed by filtering through `_visible()`.
+- **#26 — crew pre-flight crashed on an injected non-registry.** The docstring promised the
+  injected path was guarded; only the import branch was wrapped, so an object without `.all()`
+  raised straight through the bridge's claim path. Fixed and pinned.
+- **#27 — a smoke check asserted a steady state across a startup window.** `fallback_polls == 0`
+  fails on timing alone: the bridge's poll tick runs from t=0 while the websocket connects a beat
+  later, so the first tick can legitimately be a fallback poll (observed `fallback_polls=1` while
+  `poll_claims=0` and `degraded_to_polling=false` — nothing was actually claimed by the poll
+  path). Replaced with the timing-independent properties: no card claimed by the poll path, and
+  the stream has not degraded. Smoke 154/155 → **156/156**.
+
+### Release artifact
+
+The release name was moved off `--image-name`: live-build interpolates `LB_IMAGE_NAME`
+**unquoted** into filenames, and with a space in it the `binary_manifest` stage dies with
+`cp: target 'rc1-amd64.packages': No such file or directory` — which is exactly how the first
+Phase 16 build failed at `2026-10-07T21:54:32Z`. `--image-name` now carries the slug
+`mem20kaliai-1.0-rc1` and `packaging/build-iso.sh` renames the finished image to the release
+filename. `packaging/build-iso.sh` also gained a disk/memory/tool preflight and runs every
+live-build stage with stdin on `/dev/null` (see VERIFICATION.md, defect #21).
+
+### Counts, Phase 15 → Phase 16
+
+| | Phase 15 | Phase 16 |
+|---|---|---|
+| tests | 1936 passed | **2161 collected / 2154 passed / 0 failed** |
+| smoke checks | 155/155 | **156/156** |
+| tool wrappers | 73 | **74** |
+| healthy services | 7 | **7** |
+| scope-audit offenders | 0 | **0** |
+
+**Still open, unchanged:** the ISO boots but the Hermes **session** has not been reached in-sandbox
+(QEMU is OOM-killed by the 2 GB cgroup), and no bootable image can be booted to a desktop here.

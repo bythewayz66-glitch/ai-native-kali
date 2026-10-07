@@ -3,6 +3,11 @@ var/db/
 var/log/
 var/run/
 var/build/
+# Phase 16: the collector's audit cursor. Runtime state, not source - committing
+# it would bake one host's position in the chain into the tree and make every
+# other checkout resume from a stranger's offset.
+var/obs_cursors.json
+**/var/obs_cursors.json
 # python
 __pycache__/
 *.py[cod]

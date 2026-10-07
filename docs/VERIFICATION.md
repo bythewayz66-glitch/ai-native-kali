@@ -1251,4 +1251,74 @@ late userspace and `ifup@eth0` at ~54 s, then QEMU is OOM-killed (exit 137) by t
 `memory.max`. Three attempts (2048/1024/640 MB) reached the same point. `bootable_iso: true`;
 `hermes_session_reached: false` (sandbox memory limit).
 
+---
+
+## Phase 16 (2026-10-07)
+
+### Test suite (real output)
+
+```
+$ python3 -m pytest kanban-core tool-frontends agent-runtime observability \
+      hermes-shell board-ui memory-store tests --junitxml=/workspace/ph16.xml
+JUNIT tests=2161 failures=0 errors=0 skipped=17
+PYTEST_EXIT=0
+```
+
+Counts per module are unchanged from the Phase 15 baseline except where a Phase 16 feature added
+tests; the JUnit totals above are the authoritative figure.
+
+### Smoke (real output)
+
+```
+$ make dev        → all 7 services healthy
+$ python3 scripts/smoke_test.py
+  156/156 checks passed
+  full loop verified: card -> crew -> tool -> trace -> audit -> Review
+SMOKE_EXIT=0
+$ bash scripts/stop.sh  → STOP_EXIT=0, no listeners on 8081-8087
+```
+
+### Scope and crew-boundary audits (real output)
+
+```
+$ python3 scripts/scope_boundary_audit.py
+  explicit exemptions   : 46
+  hostile live runs     : 53
+  refused by scope      : 53
+  offenders             : 0
+  roles                 : 7
+  crews                 : 5
+  role tool bindings    : 14
+  dangling role tools   : 0
+  dangling crew tools   : 0
+  ceiling violations    : 0
+  offenders             : 0
+RESULT: PASS
+AUDIT_EXIT=0
+```
+
+### Defect #24 — the T1 scope floor (the escape, before the fix)
+
+```
+$ python3 -c "from tool_frontends.registry import get_registry; …"
+nmap_scan  tier=1 requires_scope=False binary=nmap
+allowed=True reasons=[]  ← a LIVE run against an out-of-scope host, allowed with no reasons
+```
+
+After the fix the same sweep refuses **53/53**; see the audit output above.
+
+### Crew pre-flight
+
+The preflight report is asserted in `agent-runtime/tests/test_phase16_crew_preflight.py`
+(16 tests), including that a refusal lands in the hash-chained tool audit log and names the
+crew, the step and the offending tool.
+
+### Quality gate
+
+The only HTML deliverable touched this round is the shell panel template, which is served by the
+running service and was exercised by the smoke suite (`panel served` → 200, six lifecycle
+columns, taskbar and notification feed all present). No standalone page artifacts were published
+this round, so the page gate (JS syntax, tag balance, HTTP 200, screenshot) applies to the
+previously published reports and not to a new artifact.
+
 

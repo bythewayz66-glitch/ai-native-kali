@@ -102,6 +102,36 @@ _FQDN_RE = re.compile(
 )
 _CRED_RE = re.compile(r"\b(?:credential|cred|password|key)\s*[:=]\s*([A-Za-z0-9_.@\-]{3,64})", re.I)
 
+#: Phase 16: entity shapes beyond host/FQDN/CVE.
+#:
+#: The graph used to know four shapes, so a report full of URLs, mailbox addresses,
+#: leaked hashes and usernames produced host nodes and nothing else - the planner
+#: could not ask "which credentials appear on this host" because credentials were
+#: only ever captured as a ``label:value`` pair. These are still **deterministic
+#: patterns**, not inference: a guessed node is a false fact in a security report.
+_URL_RE = re.compile(r"\bhttps?://[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]{4,200}", re.I)
+_EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{3,253}\.[A-Za-z]{2,24}\b")
+_SHA256_RE = re.compile(r"\b[0-9a-fA-F]{64}\b")
+_SHA1_RE = re.compile(r"\b[0-9a-fA-F]{40}\b")
+_MD5_RE = re.compile(r"\b[0-9a-fA-F]{32}\b")
+#: ``10.0.0.5:8080`` / ``example.com:443`` - the port, not the host.
+#:
+#: The left side must contain a dot, i.e. look like a host or an address. Without
+#: that, ``12:30`` and ``16:9`` are ports 30 and 9 - and a graph that invents
+#: ports from clock times is worse than one that misses a port, because a false
+#: fact in a security report costs more than a missing one.
+_PORT_RE = re.compile(r"\b(?:[A-Za-z0-9-]+\.)+[A-Za-z0-9-]+:(\d{1,5})\b")
+#: A bare port number is not evidence of anything; only ``host:port`` is.
+_USER_RE = re.compile(r"\b(?:user(?:name)?|login|account)\s*[:=]\s*([A-Za-z0-9_.@\-]{2,48})", re.I)
+#: Operating systems and frameworks the planner routes on. Explicit list, for the
+#: same reason as ``_KNOWN_PRODUCTS``: a wrong platform node silently misroutes.
+_KNOWN_PLATFORMS = frozenset(
+    """
+    windows linux ubuntu debian centos rhel fedora alpine kali freebsd openbsd
+    android ios macos darwin solaris aix
+    """.split()
+)
+
 #: Service labels that appear as the prefix of a ``label:host`` fact key.
 _KNOWN_SERVICES = frozenset(
     """
@@ -174,6 +204,37 @@ def extract_entities(text: str) -> list[tuple[str, str]]:
         candidate = _norm(match)
         if candidate in _KNOWN_PRODUCTS or candidate in _KNOWN_SERVICES:
             _add("product" if candidate in _KNOWN_PRODUCTS else "service", candidate)
+
+    # Phase 16 shapes. Order matters for one case only: the URL is captured before
+    # its own host, so ``https://api.example.com/v1`` yields the url node *and* the
+    # fqdn node, which is right - the URL is a distinct fact from the host.
+    for match in _URL_RE.findall(text or ""):
+        _add("url", match)
+    for match in _EMAIL_RE.findall(text or ""):
+        # An email is a person, not a host. The FQDN pass above would otherwise
+        # promote its domain, which is also a real entity - both are kept.
+        _add("email", match)
+    # Longest digest first: a 64-char SHA-256 must not also register as two MD5s.
+    consumed: set[str] = set()
+    for regex, kind in ((_SHA256_RE, "hash"), (_SHA1_RE, "hash"), (_MD5_RE, "hash")):
+        for match in regex.findall(text or ""):
+            if match.lower() in consumed:
+                continue
+            for prior in list(consumed):
+                if prior in match.lower():
+                    break
+            else:
+                consumed.add(match.lower())
+                _add(kind, match.lower())
+    for match in _PORT_RE.findall(text or ""):
+        port = int(match)
+        if 1 <= port <= 65535:
+            _add("port", str(port))
+    for match in _USER_RE.findall(text or ""):
+        _add("user", match)
+    for platform in _KNOWN_PLATFORMS:
+        if re.search(rf"\b{re.escape(platform)}\b", lowered):
+            _add("platform", platform)
     return found
 
 
@@ -696,6 +757,69 @@ class GraphIndex:
                 (engagement,),
             ).fetchall()
         return {row["kind"]: row["n"] for row in rows}
+
+    def entity_profile(self, engagement: str, entity: str, *, limit: int = 200) -> dict[str, Any]:
+        """Everything known about one entity, grouped for a drill-down view.
+
+        ``query`` returns a neighbourhood and ``shortest_path`` a chain; neither
+        answers "tell me about *this thing*", which is what an operator clicking a
+        node in the graph wants. The difference matters for the response shape:
+        a neighbourhood is a flat list where the interesting fact (this host has
+        three credentials *and* two CVEs) is only visible after the caller regroups
+        it, and regrouping client-side is how two views of the same entity drift.
+
+        ``relations`` groups the edges by predicate with the resolved counterpart
+        node, and ``kinds`` counts the neighbouring node kinds - so a renderer can
+        show "3 credentials, 2 CVEs" without walking the edge list.
+        """
+        engagement = (engagement or "").strip()
+        if not engagement:
+            raise ValueError("engagement is required: unscoped graph reads are a leak")
+
+        root = self.find_entity(engagement, entity)
+        if root is None:
+            return {"engagement": engagement, "entity": None, "found": False, "relations": {}, "kinds": {}, "nodes": []}
+
+        edges = self.relations(engagement, entity_id=root["entity_id"], limit=limit)
+        counterpart_ids: set[str] = set()
+        for edge in edges:
+            other = edge["dst_id"] if edge["src_id"] == root["entity_id"] else edge["src_id"]
+            counterpart_ids.add(other)
+        nodes = {n["entity_id"]: n for n in self._nodes_by_id(counterpart_ids)}
+
+        relations: dict[str, list[dict[str, Any]]] = {}
+        kinds: dict[str, int] = {}
+        for edge in edges:
+            other_id = edge["dst_id"] if edge["src_id"] == root["entity_id"] else edge["src_id"]
+            other = nodes.get(other_id)
+            if other is None:
+                continue
+            outbound = edge["src_id"] == root["entity_id"]
+            relations.setdefault(edge["predicate"], []).append(
+                {
+                    "entity_id": other_id,
+                    "name": other["name"],
+                    "kind": other["kind"],
+                    "direction": "out" if outbound else "in",
+                    "confidence": edge.get("confidence"),
+                    "relation_id": edge["relation_id"],
+                }
+            )
+            kinds[other["kind"]] = kinds.get(other["kind"], 0) + 1
+
+        return {
+            "engagement": engagement,
+            "entity": root,
+            "found": True,
+            "relations": relations,
+            "kinds": kinds,
+            "counts": {
+                "relations": len(edges),
+                "neighbours": len(counterpart_ids),
+                "predicates": len(relations),
+            },
+            "nodes": sorted(nodes.values(), key=lambda n: (n["kind"], n["name"])),
+        }
 
     def _nodes_by_id(self, ids: set[str]) -> list[dict[str, Any]]:
         if not ids:

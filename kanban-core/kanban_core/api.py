@@ -26,6 +26,7 @@ from .models import (
 )
 from .seed import seed
 from .scope_model import ScopeNarrowingError
+from .dependencies import DependencyError
 from .service import KanbanService, NotFound
 from .state_machine import TransitionError, can_move
 from .store import Store
@@ -86,6 +87,18 @@ class AssignRequest(BaseModel):
     crew: Optional[str] = None
     actor: str = "orchestrator"
     move_to_assigned: bool = True
+
+
+class DependencyRequest(BaseModel):
+    """Add or remove one dependency edge (Phase 16).
+
+    ``depends_on`` is the card that must finish first. The edge is validated when
+    it is created - a self-edge or a loop is refused with 409, because either
+    would deadlock every card in the cycle.
+    """
+
+    depends_on: str
+    actor: str = "system"
 
 
 class ApprovalRequest(BaseModel):
@@ -357,6 +370,46 @@ def build_app(store: Optional[Store] = None, bus: Optional[EventBus] = None) -> 
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
         return svc().card_view(child)
+
+    @app.get("/api/cards/{card_id}/tree")
+    def card_tree(card_id: str, max_depth: int = 8) -> dict[str, Any]:
+        """The card, its spawned children and its blockers, as one tree.
+
+        One round trip, one snapshot: the board draws both relationships in the
+        same panel, and two separately-fetched graphs would eventually disagree.
+        """
+        try:
+            return svc().card_tree(card_id, max_depth=max_depth)
+        except NotFound as exc:
+            raise not_found(exc)
+
+    @app.post("/api/cards/{card_id}/dependencies", status_code=201)
+    def add_dependency(card_id: str, body: DependencyRequest) -> dict[str, Any]:
+        """Make *card_id* wait for ``depends_on``.
+
+        Refuses (409) a self-edge or an edge that would close a loop - both are
+        deadlocks, and a deadlock found at move time is a board that was already
+        wrong. The card's prerequisite must exist (404 otherwise).
+        """
+        try:
+            card = svc().add_dependency(card_id, body.depends_on, actor=body.actor)
+        except NotFound as exc:
+            raise not_found(exc)
+        except DependencyError as exc:
+            raise HTTPException(
+                status_code=409, detail={"error": "dependency_refused", "reasons": exc.reasons}
+            )
+        return svc().card_view(card)
+
+    @app.delete("/api/cards/{card_id}/dependencies/{depends_on}")
+    def remove_dependency(card_id: str, depends_on: str, actor: str = "system") -> dict[str, Any]:
+        """Drop a dependency edge. Never gated: clearing a bad edge must not require
+        satisfying it first."""
+        try:
+            card = svc().remove_dependency(card_id, depends_on, actor=actor)
+        except NotFound as exc:
+            raise not_found(exc)
+        return svc().card_view(card)
 
     @app.post("/api/cards/{card_id}/move")
     def move(card_id: str, body: MoveRequest) -> dict[str, Any]:

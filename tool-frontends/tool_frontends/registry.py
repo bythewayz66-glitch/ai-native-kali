@@ -191,12 +191,61 @@ class ToolRegistry:
             )
         return out
 
+    def audit_scope_declarations(self) -> dict[str, Any]:
+        """Triage lists of odd scope declarations, for an operator to read.
+
+        This is a *report*, not a gate. Shape-based inference cannot decide the
+        question it appears to answer, for two reasons found while writing it:
+
+        * ``target_params`` is overloaded - it holds network targets on some tools
+          (``dns_lookup.target``) and local file paths on others (``key_path``,
+          ``root_path``, ``binary_path``), so it cannot mean "reaches a target";
+          and
+        * a target parameter frequently has **no address-shaped default** because
+          it is supplied at call time, so 51 tools that correctly declare
+          ``requires_scope`` look identical to one that never should have.
+
+        The lists below are therefore emitted for triage and nothing asserts them
+        empty. The invariant worth asserting is behavioural and lives in the
+        tests: no registered tool may *allow* a live run against an out-of-scope
+        host (see ``tests/test_phase16_scope_floor.py``).
+
+        It runs on ``summary()``, which the MCP server and the shell already call,
+        so the audit is not something anybody has to remember to run.
+        """
+        from .targets import classify as classify_target
+
+        flag_without_param: list[str] = []
+        param_without_flag: list[str] = []
+        for spec in self.all():
+            has_address_param = any(
+                classify_target(p.default) is not None
+                for p in spec.params
+                if p.default not in (None, "")
+            )
+            if spec.requires_scope and not has_address_param:
+                flag_without_param.append(spec.name)
+            if not spec.requires_scope and has_address_param:
+                param_without_flag.append(spec.name)
+        offenders = flag_without_param + param_without_flag
+        return {
+            "checked": len(self.all()),
+            "count": len(offenders),
+            "offenders": offenders,
+            "flag_without_param": flag_without_param,
+            "param_without_flag": param_without_flag,
+        }
+
     def summary(self) -> dict[str, Any]:
         tools = self.all()
+        audit = self.audit_scope_declarations()
         return {
             "count": len(tools),
             "by_tier": {t: len(self.by_tier(t)) for t in range(4)},
             "by_category": {c: len(self.by_category(c)) for c in sorted({s.category for s in tools})},
+            # Phase 16: the scope audit rides along with the counts, so a summary
+            # read of the registry cannot be mistaken for a healthy one.
+            "scope_declarations": {"checked": audit["checked"], "offenders": audit["count"]},
         }
 
 

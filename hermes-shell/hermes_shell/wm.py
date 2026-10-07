@@ -32,6 +32,7 @@ changed.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -53,6 +54,9 @@ class Window:
     w: int = DEFAULT_SIZE[0]
     h: int = DEFAULT_SIZE[1]
     state: str = "normal"  # normal | minimized | maximized
+    #: Phase 16: which virtual desktop this window lives on. Defaulted so every
+    #: existing window is on desktop 0 and the single-desktop view is unchanged.
+    workspace: int = 0
     #: Geometry before maximise, so restore returns to the user's real size.
     restore_bounds: Optional[dict[str, int]] = None
 
@@ -65,6 +69,7 @@ class Window:
             "app": self.app,
             "title": self.title,
             "state": self.state,
+            "workspace": self.workspace,
             "bounds": self.bounds(),
         }
 
@@ -78,9 +83,12 @@ class WindowManager:
     closed is normal, not exceptional, and must not 500 the shell.
     """
 
-    def __init__(self, *, width: int = 1280, height: int = 800) -> None:
+    def __init__(self, *, width: int = 1280, height: int = 800, workspaces: int = 4) -> None:
         self.width = width
         self.height = height
+        #: Phase 16: virtual desktops. At least one, or nothing is reachable.
+        self.workspaces = max(1, int(workspaces))
+        self._workspace = 0
         self._windows: dict[str, Window] = {}
         #: Bottom-to-top. The last element is the topmost window.
         self._stack: list[str] = []
@@ -100,21 +108,51 @@ class WindowManager:
         self._recent.insert(0, window_id)
 
     # ------------------------------------------------------------- views
+    def _visible(self) -> list[str]:
+        """Stack ids on the *current* desktop, bottom-to-top.
+
+        Every view filters through here. A window on another desktop is not just
+        hidden - it must not be focusable, countable or drawn, or the desktop the
+        user is looking at disagrees with the one they are typing into.
+        """
+        return [wid for wid in self._stack if self._windows[wid].workspace == self._workspace]
+
     def snapshot(self) -> dict[str, Any]:
-        """The full render model: z-order, focus, and the taskbar list."""
+        """The full render model: z-order, focus, and the taskbar list.
+
+        Scoped to the current desktop - the taskbar lists that desktop's windows,
+        because a taskbar that lists another desktop's windows is a taskbar whose
+        buttons do nothing visible when clicked.
+        """
+        visible = self._visible()
         return {
-            "windows": [self._windows[wid].as_dict() for wid in self._stack],
-            "stack": list(self._stack),  # bottom -> top
+            "windows": [self._windows[wid].as_dict() for wid in visible],
+            "stack": list(visible),  # bottom -> top
             "focused": self._focused,
+            "workspace": self._workspace,
+            "workspaces": self.workspaces,
+            #: Occupancy per desktop, so a workspace switcher can show which ones
+            #: have windows without asking for each one.
+            "workspace_counts": self.workspace_counts(),
             "taskbar": [
                 {
                     **self._windows[wid].as_dict(),
                     "focused": wid == self._focused,
                 }
                 for wid in self._created
+                if self._windows[wid].workspace == self._workspace
             ],
-            "count": len(self._windows),
+            "count": len(visible),
+            "total_count": len(self._windows),
         }
+
+    def workspace_counts(self) -> list[int]:
+        """How many windows each desktop holds, indexed by desktop number."""
+        counts = [0] * self.workspaces
+        for window in self._windows.values():
+            if 0 <= window.workspace < self.workspaces:
+                counts[window.workspace] += 1
+        return counts
 
     def get(self, window_id: str) -> Optional[Window]:
         return self._windows.get(window_id)
@@ -135,6 +173,7 @@ class WindowManager:
             y=min(offset + 24, max(0, self.height - height)),
             w=width,
             h=height,
+            workspace=self._workspace,
         )
         self._windows[wid] = window
         self._stack.append(wid)  # a new window opens on top
@@ -150,13 +189,17 @@ class WindowManager:
         self._stack.append(window_id)
 
     def _focus_next(self, excluding: str) -> None:
-        """Move focus to the topmost remaining non-minimised window.
+        """Move focus to the topmost remaining non-minimised window **on this desktop**.
 
         Minimised windows are skipped. Focusing a window the user cannot see
-        would report a focused window while nothing on screen had focus.
+        would report a focused window while nothing on screen had focus - and a
+        window on *another desktop* is exactly such a window, so it is skipped for
+        the same reason.
         """
         for wid in reversed(self._stack):
             if wid == excluding:
+                continue
+            if self._windows[wid].workspace != self._workspace:
                 continue
             if self._windows[wid].state == "minimized":
                 continue
@@ -166,10 +209,13 @@ class WindowManager:
 
     def focus(self, window_id: str) -> Optional[dict[str, Any]]:
         """Click-to-focus. Also un-minimises, because clicking a taskbar entry for
-        a minimised window means 'show me that window'."""
+        a minimised window means 'show me that window' - and switching the current
+        desktop to the window's, because clicking a window on another desktop
+        means 'take me there'."""
         window = self._windows.get(window_id)
         if window is None:
             return None
+        self._workspace = window.workspace
         window.state = "normal" if window.state == "minimized" else window.state
         self._raise(window_id)
         self._focused = window_id
@@ -310,6 +356,15 @@ class WindowManager:
             return self.minimize_all()
         if action == "restore_all":
             return self.restore_all()
+        if action == "switch_workspace":
+            return self.switch_workspace(int(payload.get("workspace") or 0))
+        if action == "move_to_workspace":
+            return self.move_to_workspace(str(wid), int(payload.get("workspace") or 0))
+        if action == "tile":
+            return self.tile(
+                columns=payload.get("columns"),
+                gap=int(payload.get("gap") or 0),
+            )
         return None
 
     def cycle(self, *, backwards: bool = False) -> Optional[dict[str, Any]]:
@@ -332,7 +387,18 @@ class WindowManager:
         Re-ranking on every press is the bug that makes Alt-Tab oscillate - see
         the comment on the body below.
         """
-        candidates = [wid for wid in self._recent if wid in self._windows and self._windows[wid].state != "minimized"]
+        candidates = [
+            wid
+            for wid in self._recent
+            if wid in self._windows
+            and self._windows[wid].state != "minimized"
+            # Phase 16: and on this desktop. The MRU list is global - it records
+            # what the user focused most recently anywhere - so without this
+            # filter Alt-Tab from desktop 0 would focus a window on desktop 2 and
+            # report a focused window that is nowhere on screen. Caught by
+            # test_cycle_skips_other_desktops.
+            and self._windows[wid].workspace == self._workspace
+        ]
         if len(candidates) < 2:
             return None
         # `candidates[0]` is the current window; step to the next MRU entry.
@@ -396,26 +462,33 @@ class WindowManager:
         return self.snapshot()
 
     def minimize_all(self) -> Optional[dict[str, Any]]:
-        """Show-desktop. Focus lands on ``None`` because nothing is visible.
+        """Show-desktop for the **current** desktop. Focus lands on ``None``.
 
         ``None`` is the honest report here, and the alternative - leaving focus on
         a window the user just hid - is the bug ``_focus_next`` exists to prevent.
+        Scoped to the current desktop: show-desktop on desktop 1 must not hide
+        desktop 2's windows, which the user is not looking at.
         """
-        if not self._windows:
+        visible = self._visible()
+        if not visible:
             return None
-        for window in self._windows.values():
-            window.state = "minimized"
+        for wid in visible:
+            self._windows[wid].state = "minimized"
         self._focused = None
         return self.snapshot()
 
     def restore_all(self) -> Optional[dict[str, Any]]:
-        """Un-minimise everything, focusing the most recently opened window.
+        """Un-minimise the current desktop, focusing its most recently opened window.
 
         The inverse of :meth:`minimize_all`. Without it, show-desktop is a
         one-way door: every window is still listed in the taskbar, but the user
         has to click each one back individually.
         """
-        hidden = [wid for wid, w in self._windows.items() if w.state == "minimized"]
+        hidden = [
+            wid
+            for wid in self._visible()
+            if self._windows[wid].state == "minimized"
+        ]
         if not hidden:
             return None
         for wid in hidden:
@@ -425,8 +498,102 @@ class WindowManager:
         self._touch(self._focused)
         return self.snapshot()
 
+    # ---------------------------------------------------- virtual desktops
+    def switch_workspace(self, index: int) -> Optional[dict[str, Any]]:
+        """Show a different virtual desktop.
+
+        The subtle part is focus. Moving the desktop while leaving focus on a
+        window that is no longer visible reports a focused window while nothing on
+        screen has focus - the same failure ``close`` and ``minimize`` guard
+        against. So focus is recomputed for the desktop being switched *to*: the
+        topmost window there, or ``None`` on an empty desktop.
+        """
+        index = int(index)
+        if not 0 <= index < self.workspaces:
+            return None
+        self._workspace = index
+        on_desktop = [
+            wid
+            for wid in reversed(self._stack)
+            if self._windows[wid].workspace == index and self._windows[wid].state != "minimized"
+        ]
+        self._focused = on_desktop[0] if on_desktop else None
+        if self._focused:
+            self._touch(self._focused)
+        return self.snapshot()
+
+    def move_to_workspace(self, window_id: str, index: int) -> Optional[dict[str, Any]]:
+        """Send a window to another desktop, without following it there.
+
+        Moving the *focused* window away leaves focus behind on the source
+        desktop, so it is recomputed - otherwise focus points at a window that is
+        now on a desktop the user is not looking at.
+        """
+        window = self._windows.get(window_id)
+        if window is None:
+            return None
+        index = int(index)
+        if not 0 <= index < self.workspaces:
+            return None
+        was_focused = self._focused == window_id
+        window.workspace = index
+        if was_focused and index != self._workspace:
+            self._focus_next(window_id)
+        return self.snapshot()
+
+    def tile(
+        self,
+        *,
+        columns: Optional[int] = None,
+        gap: int = 0,
+    ) -> Optional[dict[str, Any]]:
+        """Arrange the current desktop's windows in a near-square grid.
+
+        Columns default to ``ceil(sqrt(n))``, which keeps cells as close to square
+        as an integer grid allows. A caller may override it (a wide monitor wants
+        more columns), so it is a parameter rather than a constant.
+
+        Only non-minimised windows on the current desktop are laid out.
+        Maximised windows are un-maximised first: a window filling the screen
+        cannot also occupy one grid cell, and silently skipping them would leave
+        the user with a half-tiled desktop and no explanation. ``restore_bounds``
+        is cleared for the same reason ``snap`` clears it - the remembered
+        geometry is now stale.
+        """
+        targets = [
+            wid
+            for wid in self._visible()
+            if self._windows[wid].state != "minimized"
+        ]
+        if not targets:
+            return None
+
+        n = len(targets)
+        if columns is None:
+            columns = math.ceil(math.sqrt(n))
+        columns = max(1, min(int(columns), n))
+        rows = math.ceil(n / columns)
+        # Integer cell arithmetic. The remainder of the division is given to the
+        # last cell in each axis, not dropped and not spread - so the grid reaches
+        # the screen edge exactly and a pixel is never lost to rounding.
+        usable_w = self.width - gap * (columns - 1)
+        usable_h = self.height - gap * (rows - 1)
+        base_w, extra_w = divmod(max(1, usable_w), columns)
+        base_h, extra_h = divmod(max(1, usable_h), rows)
+
+        for position, wid in enumerate(targets):
+            row, column = divmod(position, columns)
+            window = self._windows[wid]
+            window.state = "normal"
+            window.restore_bounds = None
+            window.x = column * (base_w + gap)
+            window.y = row * (base_h + gap)
+            window.w = max(200, base_w + (extra_w if column == columns - 1 else 0))
+            window.h = max(120, base_h + (extra_h if row == rows - 1 else 0))
+        return self.snapshot()
+
     def taskbar_windows(self) -> list[dict[str, Any]]:
-        """The taskbar list: every window, opening order, focus flagged."""
+        """The taskbar list: this desktop's windows, opening order, focus flagged."""
         return [w for w in self.snapshot()["taskbar"]]
 
     def to_dict(self) -> dict[str, Any]:

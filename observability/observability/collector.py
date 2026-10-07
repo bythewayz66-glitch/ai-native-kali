@@ -6,9 +6,12 @@ duplicating or losing alerts.
 """
 from __future__ import annotations
 
+import json
+import os
 import threading
 import time
 from collections import deque
+from pathlib import Path
 from typing import Any, Optional
 
 import httpx
@@ -35,6 +38,7 @@ class Collector:
         alert_router: Optional[AlertRouter] = None,
         model_calls: Optional[ModelCallStore] = None,
         retention: Optional[RetentionSweeper] = None,
+        cursor_path: Optional[str] = None,
     ) -> None:
         self.kanban_url = kanban_url.rstrip("/")
         self.tools_url = tools_url.rstrip("/")
@@ -52,7 +56,20 @@ class Collector:
         self.ingested_audit = 0
         self.errors: list[str] = []
         self.last_poll_at: Optional[float] = None
-        self._seen_events: set[str] = set()
+        # -- Phase 16: restart continuity ---------------------------------------
+        # The audit cursor used to live in the *server's* loop state, so a restart
+        # re-pulled the chain from seq 0. That is not just wasted work: a
+        # long-running chain re-ingested from the beginning fills the bounded
+        # buffer with rows that were already delivered, and any alert derived from
+        # "what arrived since the last poll" fires again for old activity. Keeping
+        # the cursor on disk makes a restart resume rather than replay.
+        self.cursor_path = Path(cursor_path or os.environ.get("OBS_CURSOR_FILE", "var/obs_cursors.json"))
+        self.cursors: dict[str, int] = self._load_cursors()
+        #: Seen ids are capped for the same reason latencies are: an unbounded set
+        #: on a long-running collector is a slow leak. When it is trimmed the
+        #: *oldest* ids go, which is correct - a source would have to re-deliver a
+        #: very old event to need them, and the audit cursor already prevents that.
+        self._seen_events: deque[str] = deque(maxlen=max_events * 4)
         self._lock = threading.RLock()
 
         # -- Phase 5 subsystems -------------------------------------------------
@@ -75,6 +92,34 @@ class Collector:
         self.last_route_at: Optional[float] = None
 
 
+    # -- cursors (Phase 16) -------------------------------------------------
+    def _load_cursors(self) -> dict[str, int]:
+        """Read persisted cursors. A corrupt file degrades to empty, never raises.
+
+        A collector that refuses to start because its cursor file is truncated is
+        worse than one that re-pulls: the first is an outage, the second is a
+        duplicate alert. Bad data here is not worth failing over.
+        """
+        try:
+            raw = json.loads(self.cursor_path.read_text())
+            return {str(k): int(v) for k, v in raw.items()}
+        except (OSError, ValueError, TypeError):
+            return {}
+
+    def _save_cursors(self) -> None:
+        """Persist cursors atomically, so a crash cannot leave a half-written file."""
+        try:
+            self.cursor_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.cursor_path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(self.cursors, sort_keys=True))
+            tmp.replace(self.cursor_path)
+        except OSError as exc:  # pragma: no cover - filesystem failure
+            self._record_error(f"cursor persist: {exc}")
+
+    def cursor(self, source: str) -> int:
+        """The last position consumed from *source* (0 if never read)."""
+        return int(self.cursors.get(source, 0) or 0)
+
     # -- sources ---------------------------------------------------------
     def _fetch(self, url: str, params: Optional[dict[str, Any]] = None) -> Any:
         with httpx.Client(timeout=self.timeout) as client:
@@ -96,7 +141,7 @@ class Collector:
                 if key and key in self._seen_events:
                     continue
                 if key:
-                    self._seen_events.add(key)
+                    self._seen_events.append(key)
                 self.events.append(event)
                 self.ingested_events += 1
                 self.metrics.observe_event(event)
@@ -118,7 +163,7 @@ class Collector:
                     if key and key in self._seen_events:
                         continue
                     if key:
-                        self._seen_events.add(key)
+                        self._seen_events.append(key)
                     enriched = {
                         **trace,
                         "card_id": card.get("card_id"),
@@ -132,19 +177,24 @@ class Collector:
                     added += 1
         return added
 
-    def ingest_tool_audit(self, since_seq: int = 0, limit: int = 2000) -> tuple[int, int]:
+    def ingest_tool_audit(
+        self, since_seq: Optional[int] = None, limit: int = 2000
+    ) -> tuple[int, int]:
         """Pull the tool audit chain (blueprint 04.6).
 
-        Returns ``(added, new_cursor)``.
+        Returns ``(added, new_cursor)``. ``since_seq`` omitted means "resume from
+        where the last run stopped", which is what makes a restart continuous
+        instead of a replay.
         """
+        start = self.cursor("audit") if since_seq is None else since_seq
         try:
             payload = self._fetch(
-                f"{self.tools_url}/audit", {"limit": limit, "since_seq": since_seq}
+                f"{self.tools_url}/audit", {"limit": limit, "since_seq": start}
             )
         except Exception as exc:
             self._record_error(f"tool audit: {exc}")
-            return 0, since_seq
-        cursor = since_seq
+            return 0, start
+        cursor = start
         added = 0
         with self._lock:
             for row in payload.get("entries", []):
@@ -152,6 +202,9 @@ class Collector:
                 self.ingested_audit += 1
                 added += 1
                 cursor = max(cursor, int(row.get("seq", 0)))
+            if cursor != start:
+                self.cursors["audit"] = cursor
+                self._save_cursors()
         return added, cursor
 
     def ingest_model_health(self, records: list[dict[str, Any]]) -> None:
@@ -330,4 +383,5 @@ class Collector:
                 "last_route_at": self.last_route_at,
             },
             "retention": self.retention.status(),
+            "cursors": {"audit": self.cursor("audit"), "path": str(self.cursor_path)},
         }

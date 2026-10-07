@@ -667,6 +667,12 @@ class MemoryStore:
             raise ValueError("engagement is required: unscoped graph reads are a leak")
         return self.graph.entities(engagement, kind=kind, limit=limit)
 
+    def graph_entity_profile(self, engagement: str, entity: str, *, limit: int = 200) -> dict[str, Any]:
+        """Drill down into one entity (Phase 16): relations grouped by predicate."""
+        if not engagement:
+            raise ValueError("engagement is required: unscoped graph reads are a leak")
+        return self.graph.entity_profile(engagement, entity, limit=limit)
+
     def retrieval_bundle(
         self,
         engagement: str,

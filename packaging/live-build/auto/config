@@ -15,6 +15,26 @@ set -e
 # attempt (Phase 9); the mirror is now stated rather than inherited.
 KALI_MIRROR="${KALI_MIRROR:-http://http.kali.org/kali}"
 
+# --- release naming (Phase 16) ---------------------------------------------
+# The release artifact must be named for the release, not for live-build's
+# generic default (`live-image-amd64.hybrid.iso`).
+#
+# The *internal* name deliberately has **no spaces**. `--image-name` feeds
+# ``LB_IMAGE_NAME``, which live-build interpolates unquoted into filenames in
+# several stages - notably ``binary_manifest``, which does
+# ``cp ... $LB_IMAGE_NAME-amd64.packages``. A name containing spaces makes that
+# expansion split into several arguments, and the stage dies with
+#
+#     cp: target 'rc1-amd64.packages': No such file or directory
+#     E: An unexpected failure occurred, exiting...
+#
+# which is exactly how the first Phase 16 build failed (2026-10-07T21:54:32Z).
+# The human release name is applied by ``packaging/build-iso.sh`` as a rename of
+# the finished image, where a space in a filename is harmless.
+RELEASE_NAME="${RELEASE_NAME:-mem20kaliai-1.0-rc1}"
+RELEASE_FILENAME="${RELEASE_FILENAME:-Mem20kaliai version 1.0 rc1}"
+RELEASE_VOLUME="${RELEASE_VOLUME:-KALI_AI_NATIVE_RC1}"
+
 lb config noauto \
   --distribution kali-rolling \
   --architectures amd64 \
@@ -29,9 +49,10 @@ lb config noauto \
   --bootloader grub-efi \
   --binary-images iso-hybrid \
   --bootappend-live "boot=live components quiet splash username=kali hostname=kali-ai" \
+  --image-name "$RELEASE_NAME" \
   --iso-application "AI-native Kali" \
   --iso-publisher "AI-native Kali project" \
-  --iso-volume "KALI_AI_NATIVE_$(date +%Y%m%d)" \
+  --iso-volume "$RELEASE_VOLUME" \
   --apt-indices false \
   --apt-recommends false \
   --security false \

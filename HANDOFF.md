@@ -411,3 +411,46 @@ false` (sandbox memory limit, not the image).
 (`qemu-system-x86_64 -m 4096 -cdrom live-image-amd64.hybrid.iso`); (2) re-run the live crew
 with the bundled 3b model on a host with a larger memory cgroup; (3) the file-manager drop
 surface and start-menu polish remain as before.
+
+---
+
+## Phase 16 (2026-10-07)
+
+**Where the tree is.** `documents/ai-native-kali_v20/` (the Phase 16 head). Phase 15 is `_v19`.
+Branch `main`.
+
+**What Phase 16 changed.** 11 roadmap features closed and 4 defects fixed, all with tests:
+card dependencies + card tree (kanban-core); the T1 scope floor (tool-frontends, defect #24);
+graph entity drill-down and six new node kinds (memory-store); virtual desktops, tiling and the
+file-manager browse surface (hermes-shell); crew pre-flight (agent-runtime); and a
+smoke-determinism fix (#27). See BUILD_STATUS.md and VERIFICATION.md.
+
+**Starting a session.**
+
+```bash
+cd documents/ai-native-kali_v20
+export container=lxc          # required for the ISO build only (debootstrap mknod)
+make dev && make smoke        # 7 services, 156/156
+bash scripts/stop.sh          # stop before a build
+```
+
+**Building the release ISO.** The build host needs **≥10 GB free** (enforced) and ~20 GB in
+practice. Build **outside** the 8 GB overlay — `/var/lib/docker` is a separate 7 TB mount on this
+host:
+
+```bash
+BUILD_DIR=/var/lib/docker/rc1-build bash packaging/build-iso.sh
+# → /var/lib/docker/rc1-build/Mem20kaliai version 1.0 rc1.iso
+```
+
+Do not put a space in `--image-name` (live-build interpolates it unquoted; `binary_manifest`
+dies — that is what killed the first Phase 16 build). The human release name is applied by the
+build script as a rename instead.
+
+**Open blockers (unchanged).** The ISO is bootable but QEMU is OOM-killed by the 2 GB cgroup
+`memory.max` before the graphical session, so the Hermes session has never been reached in this
+sandbox. That is a sandbox limit, not an image limit.
+
+**Next steps.** (1) Boot the release ISO to the Hermes session on a host with ≥4 GB RAM free.
+(2) Re-run the live crew with the bundled 3b model where the cgroup is larger. (3) Remaining
+nice-to-haves: window-rule persistence across restarts, and richer MCP client examples.

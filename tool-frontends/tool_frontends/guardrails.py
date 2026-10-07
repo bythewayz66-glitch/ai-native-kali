@@ -130,7 +130,33 @@ def evaluate(
     has_scope = scope is not None and bool(scope.targets or scope.cidrs)
     checks["has_scope"] = has_scope
 
-    # A tool that declares a scope requirement has told us it touches a target.
+    # Phase 16 - the fail-closed floor, actually applied.
+    #
+    # ``scope_is_required`` was documented as "the fail-closed floor the callers
+    # add on top" of the flag, but no caller added it: every coverage check below
+    # read ``spec.requires_scope`` directly. So a **T1** tool that under-declared
+    # the flag had its scope check switched off entirely, and a live run against
+    # ``evil.net`` with a scope covering only ``example.com`` came back
+    # ``allowed`` with no reasons - reproduced, and pinned in
+    # ``tests/test_phase16_scope_floor.py``.
+    #
+    # The floor is OR'd with the flag (never substituted for it), so it can only
+    # ever make the check stricter, and T0 tools that legitimately touch nothing
+    # stay un-required - ``scope_is_required(0, False)`` is ``False``.
+    #
+    # The floor is applied to the **coverage** checks (stage 2b and the declared
+    # comparison below), which is where the hole actually was: a T1 tool that
+    # under-declared the flag had its target check switched off, so a live run
+    # against an out-of-scope host came back ``allowed``. It is deliberately
+    # *not* applied to the "no scope attached" branch, which stays keyed on the
+    # declaration (``spec.scope_required``): that branch is a policy statement
+    # ("this tool needs authorization"), not a target comparison, and widening it
+    # would refuse every un-flagged T0/T1 lookup that has no scope attached at
+    # all - the over-correction direction the Phase 6 tests guard.
+    scope_checked = scope_is_required(spec.tier, spec.requires_scope)
+    checks["scope_checked"] = scope_checked
+
+    # A tool that *declares* a scope requirement has told us it touches a target.
     # From T2 up a scope is mandatory and the branch below already refuses. Below
     # T2 a *dry run* with no scope is allowed (the operator still gets to see the
     # command and the reason), but a **live** run with no scope is refused,
@@ -138,11 +164,11 @@ def evaluate(
     # would send real traffic to whatever host the caller named.
     if spec.scope_required and not has_scope and not scope_is_mandatory(spec.tier) and live:
         reasons.append(
-            f"{spec.name} declares requires_scope but no authorization scope is attached; "
-            "live execution needs a scope to check the target against"
+            f"{spec.name} declares requires_scope but no authorization scope is "
+            "attached; live execution needs a scope to check the target against"
         )
 
-    if spec.requires_scope and has_scope:
+    if scope_checked and has_scope:
         if scope.is_expired():
             reasons.append("authorization scope has expired")
         # A loosely-scoped probe is tolerable; an *intrusive* action must point
@@ -168,7 +194,7 @@ def evaluate(
     # choices) are not addresses and are untouched, so this stays quiet enough
     # to keep switched on.
     value_escapes: list[str] = []
-    if has_scope and spec.requires_scope:
+    if has_scope and scope_checked:
         value_escapes = target_escapes(
             args,
             scope=scope,
@@ -188,7 +214,7 @@ def evaluate(
     # declaration, and only those, so one escape still yields exactly one
     # reason. Between them the two axes are covered: every address is checked,
     # and every declared parameter is checked.
-    if spec.requires_scope and has_scope:
+    if scope_checked and has_scope:
         for key in spec.target_params:
             raw = args.get(key)
             if not isinstance(raw, str) or not raw.strip():
