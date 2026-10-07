@@ -171,6 +171,39 @@ SYSTEM_TOOLS: list[ToolSpec] = [
         next_steps=["verify free space improved", "close the hygiene card"],
         timeout_s=60,
     ),
+    ToolSpec(
+        name="log_digest",
+        binary="journalctl",
+        category="system",
+        tier=0,
+        description="Summarise recent service and tool-call logs into a short digest for the operator.",
+        intent_examples=[
+            "summarise the last 24h of traces",
+            "digest the logs",
+            "what happened on the system today",
+        ],
+        params=[
+            ParamSpec(
+                name="window",
+                type="enum",
+                default="24h",
+                choices=["1h", "24h", "7d"],
+                description="Time window to summarise",
+            ),
+        ],
+        # T0 and purely local: it reads the journal on the host it runs on and
+        # contacts nothing, so it declares no scope. The board-level orchestrator
+        # role binds this tool, so it has to be a real registered spec - the
+        # boundary audit was flagging the name as dangling because it never was.
+        dry_run_template="journalctl --since '-24h' --no-pager | tail -200",
+        live_template="journalctl --since '-24h' --no-pager | tail -200",
+        explain=(
+            "A digest is a read of what already happened - it changes nothing, which is why "
+            "it is the one tool the board-level orchestrator role is allowed to call."
+        ),
+        next_steps=["raise a card for anything the digest flags", "attach the digest to the board review"],
+        timeout_s=60,
+    ),
 ]
 
 

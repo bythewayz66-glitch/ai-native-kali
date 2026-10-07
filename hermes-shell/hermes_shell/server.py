@@ -20,8 +20,9 @@ from typing import Any, Optional
 
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
+from .agent_desktop import DesktopManager
 from .attach import artifact_payload, entry_from_drop
 from .launcher import AppRegistry, Launcher, build_registry
 from .overlay import OverlayClient, collect, compose, probe_services
@@ -249,6 +250,45 @@ def build_app(*, autostart: bool = False) -> FastAPI:  # noqa: ARG001 - symmetry
                 )
             return JSONResponse({"detail": "no such window", "windows": wm.snapshot()}, status_code=404)
         return JSONResponse(state)
+
+    # ------------------------------ agent desktop manager (item 3)
+    _desktop_cache: dict[str, Any] = {}
+
+    def _desktop() -> DesktopManager:
+        """The agent-facing desktop surface, sharing the panel's own window manager.
+
+        Sharing ``wm`` is the point: a window the agent opens is the same window
+        the human sees in the taskbar, and a window the human closes is gone for
+        the agent too. A second manager would let the two disagree about what the
+        desktop *is* - the exact class of divergence this repository keeps fixing.
+        """
+        if "mgr" not in _desktop_cache:
+            _desktop_cache["mgr"] = DesktopManager(wm, launcher=_launcher())
+        return _desktop_cache["mgr"]
+
+    @app.get("/api/desktop")
+    def desktop_state() -> JSONResponse:
+        """Windows, processes, protected windows - the layer the agent manages through."""
+        return JSONResponse(_desktop().state())
+
+    @app.get("/api/desktop/agent-view", response_class=PlainTextResponse)
+    def desktop_agent_view() -> Any:
+        """The compact text view a crew prompt can carry in context."""
+        return _desktop().agent_view()
+
+    @app.post("/api/desktop")
+    def desktop_action(body: dict[str, Any] = Body(...)) -> JSONResponse:
+        """Apply one agent desktop intention (focus/close/minimize/open/terminate).
+
+        A refusal answers 200 carrying ``{"ok": false, "reason": ...}`` rather
+        than a 4xx. The agent is expected to *plan around* a protected window, and
+        an HTTP error would make that ordinary policy outcome look like a
+        transport failure.
+        """
+        action = str(body.get("action") or "")
+        if not action:
+            raise HTTPException(status_code=400, detail="action is required")
+        return JSONResponse(_desktop().apply(action, body))
 
     @app.get("/api/launcher")
     def launcher_index(q: str = "", kind: str = "") -> JSONResponse:

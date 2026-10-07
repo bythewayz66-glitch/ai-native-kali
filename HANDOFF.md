@@ -1,5 +1,49 @@
 # HANDOFF — AI-native Kali
 
+> ### Phase 15 (latest, 2026-10-06) — the Dream list, items 1–10
+>
+> **Tree:** `documents/ai-native-kali_v19` — a copy of the Phase 14 head
+> (`a81a51c`), made per the task-continuation rule. **Base commit:**
+> `a81a51c3038d981556273efcf34f2c5e9a575280`; this round's tip is the pushed
+> `main` (see `git log -1`).
+>
+> **What changed:**
+> - **Item 1** MCP stdio transport — already built; handshake verified end to end
+>   (74 tools, nmap dry-run). **Fixed** the example client sending `profile` to
+>   `nmap_scan` (which declares `ports`), which made the demo look like a guardrail
+>   refusal when it was a client bug.
+> - **Item 2** bridge recall-before-run — already built and covered by 21 tests;
+>   verified, not rewritten.
+> - **Item 3** `hermes_shell/agent_desktop.py` — **new**. Agent-facing window and
+>   process surface (+4 routes), sharing the panel's `WindowManager`. Protected
+>   windows refuse; the process allow-list is checked against the real `comm`, not
+>   the argument; pid 1 and the agent's own pid refuse; dry-run unless `live=True`.
+> - **Item 4** `agent_runtime/desktop_orchestration.py` + design doc — **new**.
+>   A card's `metadata.surface_window` surfaces the window **through the shell's own
+>   `/api/desktop`** and the decision joins the tool audit chain. Live HTTP PoC
+>   captured (window focus moved, ghost card did nothing, protected close refused,
+>   `verify_chain: True`).
+> - **Item 5** T1 scope gap — **a real escape existed and is fixed.** Seven T1
+>   system tools named a host but declared `requires_scope=False`, so a live run
+>   with scope `example.com` and `target=evil.net` returned `allowed=True` with no
+>   reasons. New `scripts/scope_boundary_audit.py` proves the fix: **53/53 hostile
+>   live runs refused, 0 offenders**.
+> - **Item 6** boundary audit — **one real defect fixed**: `orchestrator` bound
+>   `log_digest`, a tool that was not registered (now it is). `integrity_baseline`
+>   had declared a *file path* as its target parameter; now a host. **0 offenders.**
+> - **Items 7–10** docs: `docs/unity_license_setup.md`,
+>   `docs/hdrp_vs_ue5_comparison.md` (URP-tiered recommended over HDRP so Android
+>   stays viable), `docs/local_opencode_workflow.md`, `docs/MILESTONES.md`
+>   (**M1 progress review by 2026-10-20**, **C1 teammate contact by 2026-10-13**).
+>
+> **Gate:** `pytest` **1994 passed / 17 skipped / 0 failed**; `make dev` **7/7
+> healthy**; `make smoke` **155/155**; audit **PASS**. Stack stopped after.
+>
+> **Still open (unchanged from Phase 14):** the ISO was built and boots, but the
+> Hermes *session* was not reached in-sandbox (2 GB memory cgroup OOM-kills QEMU);
+> boot it on a host with ≥4 GB RAM free. The live crew path needs a larger memory
+> cgroup for the 3b model. File-manager drop surface and start-menu polish remain.
+
 **Written:** 2026-10-02 · **Tree:** `ai-native-kali_v11` (this repo root)
 **Repo:** `https://github.com/bythewayz66-glitch/ai-native-kali` — a **new, dedicated, PUBLIC**
 repo. This project must **never** be pushed to `petrichor` (a separate private Unity/C#

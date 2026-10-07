@@ -156,7 +156,11 @@ def main() -> int:
                 "name": "nmap_scan",
                 "arguments": {
                     "target": "scanme.nmap.org",
-                    "profile": "quick",
+                    # ``nmap_scan`` declares ``ports`` - passing ``profile`` used
+                    # to make this call come back *denied* for an unknown
+                    # parameter rather than showing the dry-run command, which
+                    # read like a guardrail refusal but was a client bug.
+                    "ports": "top100",
                     "card_id": "crd_example",
                     "caller": "example-client",
                 },

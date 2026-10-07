@@ -225,15 +225,40 @@ def test_no_cloud_wrapper_uses_a_recovered_secret():
 # system specifics
 # ===========================================================================
 
-def test_system_tools_do_not_demand_a_network_scope():
-    """A host audit is authorised by the host, not by a network scope.
+def test_system_tools_scope_declaration_matches_what_they_reach():
+    """A system tool declares ``requires_scope`` exactly when it names a host.
 
-    Declaring ``requires_scope`` here would both demand a ticket to run ``df``
-    and switch the address classifier onto arguments like ``/var/log``.
+    This test previously asserted that *no* system tool may declare
+    ``requires_scope``, on the reasoning that a host audit is authorised by the
+    host rather than by a network scope. That was true for the tools that read
+    local state and nothing else (``lynis``, ``find``, ``lsblk``, ``bootctl``,
+    ``awk``) - and false for the seven that carry a ``target`` parameter naming
+    the host whose ruleset / patch state / journal / integrity baseline is being
+    reported.
+
+    The blanket rule is what let the escape through. With the flag off, the
+    *coverage* check never ran: a live run with an attached scope for one host
+    and a ``target`` naming another returned ``allowed=True`` with no reasons.
+    The invariant is now stated against the tool's own shape - does it take a
+    host? - so it cannot be satisfied again by simply turning the flag off. See
+    ``tests/test_system_audit_scope.py`` for the escape pinned directly.
     """
-    system = [t for t in ALL if t.category == "system" and t.name != "log_rotate"]
-    offenders = [t.name for t in system if t.requires_scope]
-    assert not offenders, f"system tools wrongly requiring a network scope: {offenders}"
+    # ``log_rotate`` is excluded: its argument is a config path, not a host.
+    system = [t for t in ALL if t.category == "system" and t.name not in ("log_rotate", "log_digest")]
+    wrongly_unflagged: list[str] = []
+    wrongly_flagged: list[str] = []
+    for spec in system:
+        names_a_host = any(p.name == "target" for p in spec.params)
+        if names_a_host and not spec.requires_scope:
+            wrongly_unflagged.append(spec.name)
+        if not names_a_host and spec.requires_scope:
+            wrongly_flagged.append(spec.name)
+    assert not wrongly_unflagged, (
+        f"system tools that name a host but skip scope enforcement: {wrongly_unflagged}"
+    )
+    assert not wrongly_flagged, (
+        f"purely-local system tools wrongly requiring a network scope: {wrongly_flagged}"
+    )
 
 
 def test_no_system_wrapper_mutates_state():

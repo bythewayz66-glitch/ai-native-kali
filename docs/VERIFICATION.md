@@ -6,7 +6,179 @@ run against the real stack; the outputs are copied, not summarised.
 > **This file accumulates one acceptance section per phase; the sections are not
 > rewritten.** `§0b` is the Phase 4 run, `§0` the Phase 5 run, and `§0c` the
 > Phase 7 run; each is accurate for its own phase and retained so the history
-> stays auditable. This header reflects the **latest** run (§0d, Phase 8).
+> stays auditable. This header reflects the **latest** run (§0e, Phase 15).
+
+---
+
+## §0e — Phase 15 acceptance run (Dream list, items 1–10)
+
+Captured from the build host on **2026-10-06**, in
+`documents/ai-native-kali_v19` (a copy of the `a81a51c` head). Every count below is
+the command's own output.
+
+### Baseline (before any change)
+
+```
+$ python3 -m pytest kanban-core tool-frontends agent-runtime observability \
+      hermes-shell board-ui memory-store tests
+1936 passed, 16 skipped
+SUITE_EXIT=0
+```
+
+### Item 1 — MCP stdio transport, real handshake
+
+```
+$ PYTHONPATH=tool-frontends:kanban-core python3 tool-frontends/examples/mcp_client.py
+1. initialize
+   server   : ai-native-kali-tool-frontends v0.2.0
+   protocol : 2024-11-05
+   tools    : yes
+2. tools/list
+   74 tools exposed
+4. tools/call - safe dry-run (nmap)
+   status   : dry_run
+   command  : nmap -sT --top-ports 100 scanme.nmap.org
+   audit    : seq=1 hash=f87d5dbb4e47029f...
+MCP_EXIT=0
+```
+
+**Defect found and fixed:** the example client passed `profile` to `nmap_scan`,
+which declares `ports`. The call returned `denied` for an unknown parameter and
+read like a guardrail refusal; it was a client bug. Fixed to `ports="top100"` and
+the dry-run command now prints as above.
+
+### Items 1, 2, 5, 6 — targeted suites
+
+```
+$ python3 -m pytest tool-frontends/tests/test_mcp_stdio.py \
+      agent-runtime/tests/test_phase4_memory_recall.py agent-runtime/tests/test_bridge.py \
+      tool-frontends/tests/test_phase6_scope_flag.py tool-frontends/tests/test_target_escapes.py -v
+130 passed
+```
+
+### Item 5 — scope-escape reproduced, then fixed
+
+The escape, reproduced directly against the engine:
+
+```
+$ run_tool(patch_level_check, {"target": "evil.net"}, scope=Scope(targets=["example.com"]),
+           approved=True, live=True, live_unlocked=True)
+patch_level_check        live+scope(example.com) target=evil.net -> status=ok  allowed=True  reasons=[]
+firewall_audit           live+scope(example.com) target=evil.net -> status=ok  allowed=True  reasons=[]
+```
+
+A live run against an out-of-scope host was **allowed with no reasons**. Seven T1
+system tools were affected (`firewall_audit`, `audit_policy_check`,
+`patch_level_check`, `service_exposure_check`, `kernel_hardening_check`,
+`log_forensics`, `integrity_baseline`): all took a host in `target` but declared
+`requires_scope=False`, and the flag is what switches on the coverage check.
+
+After the fix:
+
+```
+$ python3 scripts/scope_boundary_audit.py
+ITEM 5 - T1 scope enforcement / target-escape audit
+  wrappers              : 74
+  scope-requiring       : 53
+  hostile live runs     : 53
+  refused by scope      : 53
+  offenders             : 0
+
+ITEM 6 - crew/role tier-vs-flag boundary audit
+  roles                 : 7
+  crews                 : 5
+  role tool bindings    : 14
+  dangling role tools   : 0
+  dangling crew tools   : 0
+  ceiling violations    : 0
+  offenders             : 0
+
+RESULT: PASS
+AUDIT_EXIT=0
+```
+
+### Item 6 — `orchestrator` bound a tool that did not exist
+
+The audit reported `log_digest` as a dangling binding: the `orchestrator` role
+named it but no wrapper defined it, so the role's stated authority was a
+declaration nothing enforced. `log_digest` is now a real registered T0 local tool.
+
+`integrity_baseline` was also wrong in the opposite direction: it declared
+`target_params=["config"]` — a *file path* — so `target_value()` returned
+`/etc/aide/aide.conf` and the scope check compared a filesystem path against a
+host scope. It now declares a host target and no address-shaped parameter.
+
+A pre-existing test (`test_system_tools_do_not_demand_a_network_scope`) asserted
+the blanket rule "no system tool may declare `requires_scope`" — the rule that
+produced the escape. It is replaced by
+`test_system_tools_scope_declaration_matches_what_they_reach`, which states the
+invariant against the tool's own shape (does it name a host?), so it cannot be
+satisfied again by turning the flag off.
+
+### Item 3 — desktop manager
+
+```
+$ python3 -m pytest hermes-shell/tests/test_agent_desktop.py -q
+19 passed
+$ python3 -m pytest hermes-shell/ -q
+335 passed
+```
+
+Includes `test_live_terminate_actually_ends_a_real_process`, which spawns a real
+process, confirms its `comm` from `/proc`, signals it with `live=True` and waits
+for it to exit — the one path that touches the kernel.
+
+### Item 4 — orchestrating the real desktop over HTTP (PoC)
+
+Live capture against the running `hermes_shell` app (full transcript in
+`docs/hermes_kanban_orchestration.md` §7):
+
+```
+hermes-shell live on :34969
+opened: win_0001 win_0002
+--- orchestrate(card) ---
+{'action': 'focus', 'window_id': 'win_0001', 'matched_by': 'id', ...}
+focused now: win_0001
+windows opened for ghost card: None
+protected close: {'ok': False, 'refused': True, 'reason': 'hermes-panel is protected: ...'}
+--- audit chain ---
+{'tool': 'desktop_surface', 'status': 'ok', 'target': 'win_0001', 'decision': 'focus'}
+chain verified: True
+```
+
+```
+$ python3 -m pytest agent-runtime/tests/test_desktop_orchestration.py -q
+18 passed
+```
+
+### Acceptance gate (this round)
+
+```
+$ python3 -m pytest kanban-core tool-frontends agent-runtime observability \
+      hermes-shell board-ui memory-store tests
+1994 passed, 17 skipped, 1 warning in 105.61s
+SUITE_EXIT=0
+
+$ make dev
+all 7 services healthy
+DEV_EXIT=0
+
+$ make smoke
+155/155 checks passed
+SMOKE_EXIT=0
+
+$ python3 scripts/scope_boundary_audit.py
+RESULT: PASS
+AUDIT_EXIT=0
+```
+
+Stack stopped after verification (`make stop`; no listeners on 8081–8087).
+
+**Counts, previous → this round:** tests 1936 → **1994** (+58: 19 desktop manager,
+18 orchestration, 21 scope/flag); smoke 155/155 → **155/155**; tool wrappers
+73 → **74** (`log_digest`); audit offenders **3 → 0**.
+
+---
 
 Reproduce with:
 

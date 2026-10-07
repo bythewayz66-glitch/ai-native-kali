@@ -3,22 +3,41 @@
 Workstream B, Phase 3. Blueprint ref: section 05 - the system row, and the
 system-maintenance board in section 03.
 
-Why these are almost all T0/T1, and why none declare ``requires_scope``
------------------------------------------------------------------------
-Every tool in this module inspects **the machine it runs on**. None of them
-takes a network target, because a system audit is not authorised by a network
-scope - it is authorised by being run on a host you already control.
+Why these are T0/T1, and which ones declare ``requires_scope``
+--------------------------------------------------------------
+The T0 tools in this module inspect **the machine they run on** and nothing
+else: ``lynis``, ``find``, ``lsblk``, ``bootctl`` read local state. None reaches
+a host, so none declares ``requires_scope`` - requiring an authorization ticket
+to run ``df`` would be over-correction, and the address classifier is
+correspondingly left alone for them (see ``tool_frontends/targets.py``).
 
-That has a direct consequence for the guardrail engine. ``requires_scope`` marks
-a tool as reaching the network, and it is what switches on value-based target
-checking (see ``tool_frontends/targets.py``). Setting it here would be wrong in
-both directions: it would demand an authorization ticket to run ``df``, and it
-would make the address classifier inspect arguments like ``/var/log`` for
-out-of-scope hosts.
+The T1 tools are different in kind, and an audit of this module found the
+difference was not being expressed. Six of them - ``firewall_audit``,
+``audit_policy_check``, ``patch_level_check``, ``service_exposure_check``,
+``kernel_hardening_check`` and ``log_forensics`` - name a host in their
+``target`` parameter while reporting on a *local* collector. That target value is
+what the operator reviews (it is the host the ruleset/patch-state/journal belongs
+to), and it is exactly the value that must be covered by the attached scope when
+the engine rules on the run.
 
-So these specs declare ``requires_scope=False`` deliberately, and the address
-classifier leaves them alone. The tier still means something: T1 tools read
-security-relevant configuration (firewall rules, audit policy, patch state) and
+They previously declared ``requires_scope=False``, which made their ``target``
+decorative: a live run passed an out-of-scope host and the engine never compared
+it. The Tier-1 fail-closed floor (``scope_is_required``) requires a scope for a
+*live* run, but only a declared ``requires_scope`` switches on the *coverage*
+check - so with the flag off, ``live=True`` plus an attached scope for
+``example.com`` and ``target=evil.net`` returned ``allowed=True`` with no
+reasons. That is the escape the audit caught; the flag is now set on those six,
+and ``tests/test_system_audit_scope.py`` pins it.
+
+``integrity_baseline`` is the reverse case and was also wrong: it declared
+``target_params=["config"]`` and defaulted that to ``/etc/aide/aide.conf``. A file
+path is not a network target, so ``target_value()`` returned the path and the
+scope checks compared a filesystem path against a host scope. It now declares a
+network scope (AIDE needs the host named) with no address-shaped parameter; the
+config path is fixed in the template because there is only one sane value on a
+host and making it an argument only created a fake target.
+
+The tier still means something: T1 tools read security-relevant configuration and
 anything that *changes* system state is deliberately absent from this module -
 ``log_rotate`` (T0, dry-run by default) remains the only mutating system tool and
 it lives in ``wrappers/__init__.py`` next to the original reference set.
@@ -210,6 +229,7 @@ SYSTEM_AUDIT_TOOLS: list[ToolSpec] = [
         ],
         target_params=["target"],
         scope_skip_params=["backend"],
+        requires_scope=True,
         dry_run_template="nft list ruleset",
         live_template="nft list ruleset",
         explain=(
@@ -231,6 +251,7 @@ SYSTEM_AUDIT_TOOLS: list[ToolSpec] = [
             ParamSpec(name="target", type="string", default="localhost", description="Host whose audit policy is reviewed"),
         ],
         target_params=["target"],
+        requires_scope=True,
         dry_run_template="auditctl -l",
         live_template="auditctl -l",
         explain=(
@@ -259,6 +280,7 @@ SYSTEM_AUDIT_TOOLS: list[ToolSpec] = [
         ],
         target_params=["target"],
         scope_skip_params=["filter"],
+        requires_scope=True,
         dry_run_template="apt list --upgradable",
         live_template="apt list --upgradable",
         explain=(
@@ -281,6 +303,7 @@ SYSTEM_AUDIT_TOOLS: list[ToolSpec] = [
         ],
         target_params=["target"],
         scope_skip_params=["protocol"],
+        requires_scope=True,
         dry_run_template="ss -tulpn",
         live_template="ss -tulpn",
         explain=(
@@ -301,6 +324,7 @@ SYSTEM_AUDIT_TOOLS: list[ToolSpec] = [
             ParamSpec(name="target", type="string", default="localhost", description="Host whose kernel parameters are read"),
         ],
         target_params=["target"],
+        requires_scope=True,
         dry_run_template="sysctl -a",
         live_template="sysctl -a",
         explain=(
@@ -324,6 +348,7 @@ SYSTEM_AUDIT_TOOLS: list[ToolSpec] = [
         ],
         target_params=["target"],
         scope_skip_params=["pattern", "since"],
+        requires_scope=True,
         dry_run_template="journalctl --since '{since}' --grep '{pattern}' --no-pager",
         live_template="journalctl --since '{since}' --grep '{pattern}' --no-pager",
         explain=(
@@ -340,12 +365,16 @@ SYSTEM_AUDIT_TOOLS: list[ToolSpec] = [
         tier=1,
         description="Compare the filesystem against its integrity baseline and report drift.",
         intent_examples=["check file integrity", "has anything changed on the system", "run the integrity check"],
+        # No address-shaped argument: the AIDE configuration path is fixed in the
+        # template (only one sane value exists on a host). The scope covers the
+        # *host* the baseline belongs to, which is what the operator reviews.
         params=[
-            ParamSpec(name="config", type="string", default="/etc/aide/aide.conf", description="AIDE configuration"),
+            ParamSpec(name="target", type="string", default="localhost", description="Host whose integrity baseline is checked"),
         ],
-        target_params=["config"],
-        dry_run_template="aide --check --config {config}",
-        live_template="aide --check --config {config}",
+        target_params=["target"],
+        requires_scope=True,
+        dry_run_template="aide --check --config /etc/aide/aide.conf",
+        live_template="aide --check --config /etc/aide/aide.conf",
         explain=(
             "Drift in /etc or /usr/bin is the most reliable sign of compromise, and it is also the "
             "most reliable source of false positives - so it needs review, not automation."
@@ -355,6 +384,7 @@ SYSTEM_AUDIT_TOOLS: list[ToolSpec] = [
     ),
 ]
 
-# Tier distribution: T0 x7, T1 x7. No T2/T3, and none declare requires_scope -
-# see the module docstring for why that is the correct assignment rather than an
-# omission.
+# Tier distribution: T0 x7, T1 x7. No T2/T3. The T0 tools are purely local and
+# declare no scope; the seven T1 tools all inspect a named host and therefore all
+# declare ``requires_scope`` - see the module docstring for the audit that made
+# that distinction explicit rather than leaving six of them looking local.

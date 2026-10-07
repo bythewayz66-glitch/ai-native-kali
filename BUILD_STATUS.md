@@ -1,5 +1,74 @@
 # BUILD STATUS — AI-native Kali
 
+> ### Phase 15 — ✅ the Dream list worked through (items 1–10)
+>
+> Worked from `documents/ai-native-kali_v19` (a copy of the `a81a51c` head, per the
+> task-continuation rule). Ten items, each verified with real command output.
+> **Two genuine defects were found and fixed**, neither of which the existing suite
+> caught — both in the "a declaration no engine enforces" family this repo keeps
+> finding at new layers.
+>
+> **Item 1 — MCP stdio transport: already built; verified end to end, one client bug fixed.**
+> `tool-frontends/tool_frontends/mcp_stdio.py` + `examples/mcp_client.py` implement the
+> transport. Real handshake captured: `initialize` → server `ai-native-kali-tool-frontends
+> v0.2.0`, protocol `2024-11-05`; `tools/list` → **74 tools**; `tools/call` → nmap dry-run
+> `nmap -sT --top-ports 100 scanme.nmap.org`. **Defect fixed:** the example client sent
+> `profile` to `nmap_scan`, which declares `ports` — so the "safe dry-run" demo came back
+> *denied* for an unknown parameter and read like a guardrail refusal when it was a client
+> bug. Fixed to `ports="top100"`.
+>
+> **Item 2 — bridge consults vector recall before crew runs: already built; verified.**
+> `agent_runtime/bridge.py` wires `recall_context` into the pre-run path and injects the
+> bundle into the prompt; counters (`memory_recalls`, `memory_hits`, `memory_seeds`,
+> `recall_prompt_chars`) make a silently-broken path visible. Covered by 21 tests in
+> `test_phase4_memory_recall.py` incl. "prior memory is retrieved and handed to the crew".
+>
+> **Item 3 — AI desktop manager layer: built.** New `hermes_shell/agent_desktop.py`
+> (+ 4 routes in `server.py`): `DesktopManager` exposes list/focus/close/minimize/open to
+> the agent layer, sharing the panel's own `WindowManager`. Policy: protected windows
+> (panel, session) refuse, the process allow-list is checked against the process's **real
+> `comm`** — never the argument — pid 1 and the agent's own pid refuse, and process actions
+> are dry-run unless `live=True`. 19 tests, incl. one that really signals a spawned process.
+>
+> **Item 4 — Hermes Kanban as OS-level orchestration: design + working PoC.** New
+> `agent_runtime/desktop_orchestration.py` + `docs/hermes_kanban_orchestration.md`. A card's
+> `metadata.surface_window` is resolved id → app → title and applied through the shell's own
+> `/api/desktop` (never around its policy); every decision lands in the same hash-chained
+> tool audit log. **PoC demonstrated live over real HTTP**: card focus moved the running
+> shell's focus to `win_0001`, an unknown window surfaced **nothing** (the board never opens
+> one), a protected close was refused, the crew-prompt context block carried the live view,
+> and `verify_chain` returned `True`. 18 tests.
+>
+> **Item 5 — T1 scope-enforcement gap: a real escape existed; fixed.** A new audit
+> (`scripts/scope_boundary_audit.py`) found **seven T1 system tools declared
+> `requires_scope=False` while naming a host in their `target`**: `firewall_audit`,
+> `audit_policy_check`, `patch_level_check`, `service_exposure_check`,
+> `kernel_hardening_check`, `log_forensics`, `integrity_baseline`. With the flag off the
+> *coverage* half of the check never ran, so a **live run with scope `example.com` and
+> `target=evil.net` returned `allowed=True` with no reasons** (reproduced both with and
+> without a scope). All seven now declare `requires_scope=True`; the three artifact-path
+> tools (`binwalk_extract`, `volatility_pslist`, `r2_analyze`) were flagged too and fixed.
+> The audit now reports **53/53 hostile live runs refused, 0 offenders**.
+>
+> **Item 6 — crew/role boundary audit: one real defect; fixed.** Audit found
+> **`orchestrator` bound `log_digest`, a tool that was not registered** — a role whose
+> authority was a declaration nothing enforced. `log_digest` is now a real T0 local tool.
+> Also fixed `integrity_baseline`, which had declared `target_params=["config"]` — a *file
+> path* — so `target_value()` returned `/etc/aide/aide.conf` and the scope check compared a
+> filesystem path against a host scope. Audit: **0 offenders** across 7 roles / 5 crews / 14
+> role-tool bindings.
+>
+> **Items 7–10 — documentation.** `docs/unity_license_setup.md` (UNITY_LICENSE: `.alf` must
+> be minted **on the runner**; Personal `.ulf` expires; security rules), `docs/hdrp_vs_ue5_comparison.md`
+> (recommends **URP tiered** over HDRP so Android stays viable, with the condition that would
+> change the answer), `docs/local_opencode_workflow.md` (post-handoff local loop + the four
+> checks that define "handoff is ready"), `docs/MILESTONES.md` (**M1 by 2026-10-20**, **C1
+> teammate contact by 2026-10-13**).
+>
+> **Gate (this round):** `pytest` → **1994 passed, 17 skipped, 0 failed** (baseline this run
+> 1936/16); `make dev` → **7/7 services healthy**; `make smoke` → **155/155 checks passed**;
+> `scripts/scope_boundary_audit.py` → **PASS**. Stack stopped after verification.
+
 > ### Phase 12 — ✅ persistent SSH push access configured (no PAT needed)
 >
 > The "no credentials" blocker is now permanently resolved for this repo. The sandbox
