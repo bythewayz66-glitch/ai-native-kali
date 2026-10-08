@@ -10,6 +10,10 @@ import ipaddress
 import re
 from typing import Any, Optional
 
+from .capabilities import build_manifest
+from .effects import EFFECTS
+from .effects import is_mutating
+from .effects import unknown as unknown_effects
 from .spec import ToolSpec
 
 
@@ -87,6 +91,12 @@ class ToolRegistry:
             raise ValueError(f"T3 tool '{spec.name}' must set requires_sandbox=True")
         if not spec.dry_run_template:
             raise ValueError(f"tool '{spec.name}' needs a dry_run_template (safe by default)")
+        bad_effects = unknown_effects(spec.effects)
+        if bad_effects:
+            raise ValueError(
+                f"tool '{spec.name}' declares unknown effect(s) {bad_effects}; "
+                f"known effects are {list(EFFECTS)}"
+            )
         self._tools[spec.name] = spec
         return spec
 
@@ -186,6 +196,15 @@ class ToolRegistry:
                         "requires_scope": spec.requires_scope,
                         "requires_approval": spec.requires_approval,
                         "requires_sandbox": spec.requires_sandbox,
+                        # Phase 17: an external MCP client must be able to see what
+                        # a tool does to the host, not only how intrusive it is
+                        # toward its target. ``effects_enforced`` says whether the
+                        # list is the author's declaration or is still empty
+                        # pending one - so a client can tell "declares no local
+                        # footprint" from "has not declared one yet".
+                        "effects": spec.enforced_effects(),
+                        "effects_enforced": spec.effects_declared,
+                        "effects_inferred": spec.inferred_effects(),
                     },
                 }
             )
@@ -236,9 +255,50 @@ class ToolRegistry:
             "param_without_flag": param_without_flag,
         }
 
+    def audit_effects(self) -> dict[str, Any]:
+        """The declared / inferred split - the footprint-migration backlog.
+
+        A report, not a gate. Tools carrying an explicit ``effects`` declaration
+        are gated on it; tools without one are gated on nothing but are listed
+        here, with the footprint the inference *suggests* they have, so the
+        backlog is a number that can be driven down and a wrong inference is
+        visible to the author who will confirm it.
+        """
+        declared: list[str] = []
+        inferred: list[str] = []
+        suggested_mutators: list[str] = []
+        for spec in self.all():
+            if spec.effects_declared:
+                declared.append(spec.name)
+                continue
+            inferred.append(spec.name)
+            # The *inferred* set is what the suggestion reads. Reading the
+            # enforced set here (empty for an undeclared tool) made the list
+            # permanently empty - the one signal that tells an author to confirm
+            # a footprint was silently reporting nothing.
+            if is_mutating(spec.inferred_effects()):
+                suggested_mutators.append(spec.name)
+        return {
+            "checked": len(self.all()),
+            "declared": len(declared),
+            "inferred": len(inferred),
+            "declared_tools": sorted(declared),
+            "inferred_tools": sorted(inferred),
+            "suggested_mutators": sorted(suggested_mutators),
+        }
+
+    def capability_manifest(self) -> dict[str, Any]:
+        """The operator-facing statement of everything this layer can do.
+
+        Derived from the same specs the guardrails read, so the manifest cannot
+        describe a policy the enforcement path does not apply.
+        """
+        return build_manifest(self)
+
     def summary(self) -> dict[str, Any]:
         tools = self.all()
         audit = self.audit_scope_declarations()
+        effects_report = self.audit_effects()
         return {
             "count": len(tools),
             "by_tier": {t: len(self.by_tier(t)) for t in range(4)},
@@ -246,6 +306,12 @@ class ToolRegistry:
             # Phase 16: the scope audit rides along with the counts, so a summary
             # read of the registry cannot be mistaken for a healthy one.
             "scope_declarations": {"checked": audit["checked"], "offenders": audit["count"]},
+            # Phase 17: the same for the local-footprint (effects) audit.
+            "effects": {
+                "checked": effects_report["checked"],
+                "declared": effects_report["declared"],
+                "inferred": effects_report["inferred"],
+            },
         }
 
 

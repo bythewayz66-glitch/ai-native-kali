@@ -9,6 +9,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="${BUILD_DIR:-/tmp/ai-native-kali-build}"
 
+# --- release naming ---------------------------------------------------------
+# Defined here as well as in auto/config: auto/config runs via `bash auto/config`
+# in a subshell, so its variables never reach this script, and `set -u` then
+# aborts the rename with "RELEASE_NAME: unbound variable" *after* a successful
+# build. The defaults must match auto/config.
+RELEASE_NAME="${RELEASE_NAME:-mem20kaliai-1.0-rc1}"
+RELEASE_FILENAME="${RELEASE_FILENAME:-Mem20kaliai version 1.0 rc1}"
+
 if ! command -v lb >/dev/null 2>&1; then
   echo "live-build ('lb') is not installed: apt-get install live-build" >&2
   exit 1

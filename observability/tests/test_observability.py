@@ -173,8 +173,13 @@ class TestCollector:
         assert col.ingest_kanban_events() == 0
         assert col.errors and "connection refused" in col.errors[0]
 
-    def test_audit_cursor_advances(self):
-        col = Collector()
+    def test_audit_cursor_advances(self, tmp_path):
+        # The audit cursor is persisted to disk (Phase 16: restart continuity),
+        # so a Collector with the default path resumes the previous run's cursor
+        # and the assertion here would depend on execution order. Isolating the
+        # cursor file is what makes this a test of the *ingest* logic rather than
+        # a test of whatever the last run left behind.
+        col = Collector(cursor_path=str(tmp_path / "cursors.json"))
         col._fetch = lambda url, params=None: {
             "entries": [
                 {"seq": 1, "ts": "t", "tool": "a"},

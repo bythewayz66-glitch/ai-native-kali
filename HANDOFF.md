@@ -1,6 +1,65 @@
 # HANDOFF — AI-native Kali
 
-> ### Phase 15 (latest, 2026-10-06) — the Dream list, items 1–10
+> ### Phase 17 (latest, 2026-10-07) — the RC1 ISO boots; boot/serial root cause; effects layer
+>
+> **Tree:** `documents/ai-native-kali_v21` — a copy of the Phase 16 head
+> (`09377c5`), made per the task-continuation rule.
+>
+> **Resumed from:** "the ISO built but produced no serial output under QEMU UEFI;
+> the El Torito catalog is identical, so the catalog is not the difference." The
+> catalog was the wrong end of the problem.
+>
+> **What changed:**
+> - **Boot/serial root cause found** — two compounding facts. (A) the ISO is
+>   **UEFI-only** (`--bootloader grub-efi` drops BIOS+isohybrid), so a BIOS boot
+>   fails before any bootloader: captured `Boot failed: Could not read from CDROM
+>   (code 0009)`. (B) the stock GRUB EFI image reads `gfxterm`, carries no `serial`
+>   terminal and **no `set timeout`**, so a headless boot waits at an invisible
+>   menu — proven by `error: file '/boot/grub/fonts/unicode.pf2' not found.`
+> - **NEW** `packaging/live-build/config/includes.binary/boot/grub/config.cfg` — a
+>   headless-first GRUB (serial console, 5 s timeout, theme off, guarded `insmod`).
+> - **The RC1 ISO boots.** Real serial log captured (57,793 bytes): GRUB menu →
+>   kernel `7.1.5+kali-amd64` → `Welcome to Kali` → `ifup@eth0` up.
+> - **NEW** effects/footprint layer (`effects.py`, `capabilities.py`,
+>   `scripts/verify_tool_audit.py`) + the guardrail stage 4b that makes a **declared
+>   mutating footprint** force a sandbox from T1 up (tier only widens it).
+> - **4 defects fixed**: effect-inference over-catch (D24), permanently-empty
+>   `suggested_mutators` (D25), audit `effects` column migration (D26), and the
+>   **pre-existing** order-dependent `test_audit_cursor_advances` (D27 — the suite
+>   went 1 failure → 0).
+> - **NEW hook** `0020-enable-ai-native-units.hook.chroot` — the `kali-ai.target`
+>   tree was never `systemctl enable`d, so nothing started the stack.
+>
+> **Release artifact:** `Mem20kaliai version 1.0 rc1.iso` — **704,016,384 B**,
+> `sha256 b7702c8444e94d369b668139697997e560c60e05e329037d384283c1925ec0e9`. Built
+> from the **minimal** package set (`kali-linux-core`); the full `kali-tools-*` set
+> is blocked in-sandbox by the 2 GB cgroup (see below).
+>
+> **Counts:** tests **2062 → 2096** (+34, and **1 failure → 0**); tool wrappers 74
+> (unchanged, 1 now declares a footprint); policy violations in the guardrail tests
+> 0. No API contract changed additively; `/capabilities` is new.
+>
+> **Still open / not closed:**
+> - `hermes_session_reached: false` — the image reaches late userspace but stalls at
+>   `Job ldconfig.service/start running (…/ no limit)` inside the 2 GB cgroup, and
+>   **no display manager is installed** (`sddm`/`lightdm`/`gdm3`/`xdm`/`nodm` all
+>   absent), so nothing can offer the Hermes session. `bootable_iso: true` **is**
+>   proven; the session claim is **not**.
+> - The **full** RC1 (with `kali-tools-*`) is not built here: `seclists` (545 MB) is
+>   OOM-killed by dpkg's decompressor at the 2 GB cap.
+> - BIOS boot needs `--bootloader syslinux,grub-efi` **and** `grub-pc-bin` inside a
+>   rebuilt chroot.
+> - `git ls-remote` to GitHub times out from this sandbox; the push uses the
+>   configured deploy key and the remote SHA is read back from the push.
+>
+> **Boot it (UEFI, host with ≥4 GB RAM free):**
+> ```bash
+> qemu-system-x86_64 -m 4096 -bios /usr/share/OVMF/OVMF_CODE.fd \
+>   -cdrom "Mem20kaliai version 1.0 rc1.iso" -nographic
+> ```
+> (on a BIOS-only host, write it to a USB stick and boot that in UEFI mode)
+
+> ### Phase 15 (2026-10-06) — the Dream list, items 1–10
 >
 > **Tree:** `documents/ai-native-kali_v19` — a copy of the Phase 14 head
 > (`a81a51c`), made per the task-continuation rule. **Base commit:**

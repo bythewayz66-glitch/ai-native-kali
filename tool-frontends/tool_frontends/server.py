@@ -33,6 +33,13 @@ policy = LivePolicy.from_env()
 LIVE_ENABLED = policy.live_enabled
 UNLOCKED = set(policy.unlocked)
 MAX_TIER = policy.max_tier
+#: Whether dynamic mirror discovery is available on this host. It is **not**: the
+#: mirror statement lives in ``packaging/live-build/auto/config``, which is read
+#: by ``lb`` outside this process, so the server can only report the host's
+#: build-time mirror as information. Kept as an explicit, always-False flag so no
+#: client infers a capability this service does not have - the same reason the
+#: health payload states ``live_enabled`` rather than letting a caller assume it.
+MIRROR_DISCOVERY_AVAILABLE = False
 
 
 class ToolCall(BaseModel):
@@ -82,6 +89,10 @@ def build_app(audit: Optional[ToolAuditLog] = None) -> FastAPI:
             "policy": policy.describe(),
             "audit": audit.verify_chain(),
             "audit_counts": audit.counts(),
+            # Advertised so a client never has to guess: this service does not do
+            # mirror discovery (the build-time mirror is stated in auto/config).
+            "mirror_discovery_available": MIRROR_DISCOVERY_AVAILABLE,
+            "host_kali_mirror": os.environ.get("KALI_MIRROR", "http://http.kali.org/kali"),
         }
 
     @app.get("/tools")
@@ -96,6 +107,18 @@ def build_app(audit: Optional[ToolAuditLog] = None) -> FastAPI:
             "count": len(tools),
             "tiers": TOOL_TIERS,
         }
+
+    @app.get("/capabilities")
+    def capability_manifest() -> dict[str, Any]:
+        """The operator-facing statement of everything this layer can do.
+
+        Derived from the same specs the guardrails read, so it cannot describe a
+        policy the enforcement path does not apply. One document replaces the
+        three partial views (registry summary, MCP listing, shell panel) that an
+        operator previously had to compare by hand to answer "which of these
+        tools writes to my filesystem?".
+        """
+        return registry.capability_manifest()
 
     @app.get("/mcp/tools/list")
     def mcp_list() -> dict[str, Any]:

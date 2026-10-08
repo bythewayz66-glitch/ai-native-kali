@@ -1,5 +1,186 @@
 # BUILD STATUS — AI-native Kali
 
+> ### Phase 17 — ✅ the release ISO boots; boot/serial root cause found; 4 defects fixed
+>
+> **Tree:** `documents/ai-native-kali_v21` (copy of the `09377c5` head, per the
+> task-continuation rule). **Release artifact:** `Mem20kaliai version 1.0 rc1.iso`,
+> **704,016,384 bytes**, `sha256 b7702c8444e94d369b668139697997e560c60e05e329037d384283c1925ec0e9`.
+>
+> Resumed from the Phase 16 stopping point ("the ISO built but produced no serial
+> output; the El Torito catalog is not the difference"). The catalog was the wrong
+> end of the problem. This round finished the diagnosis, **rebuilt the RC1 ISO, and
+> booted it** — GRUB menu over serial, kernel, `Welcome to Kali`, network up. Three
+> features landed with **+34 tests**, and **four defects** were found and fixed.
+>
+> ---
+>
+> #### §1  The boot/serial mystery — root cause (two compounding facts)
+>
+> Re-tested from the firmware upward instead of comparing catalogs:
+>
+> | Evidence | Old ISO | RC1 |
+> |---|---|---|
+> | grub.cfg kernel cmdline | `boot=live components quiet splash` | `boot=live components console=ttyS0,115200n8` |
+> | El Torito boot image | UEFI (`efi.img`) | UEFI (`efi.img`) |
+> | BIOS / isohybrid MBR | present | **absent** |
+>
+> **Fact A — the ISO is UEFI-only.** `packaging/live-build/auto/config` sets
+> `--bootloader grub-efi` (Debian's `lb config` default is `syslinux,grub-efi`; the
+> override drops BIOS+isohybrid). Booted with SeaBIOS **BIOS** firmware the CD is
+> not bootable at all — the real, captured output:
+> `Boot failed: Could not read from CDROM (code 0009)` → `No bootable device.`
+> That alone explains "no serial output" on a BIOS boot: the firmware never
+> reached any bootloader.
+>
+> **Fact B — the stock GRUB EFI image cannot show anything on a serial console.**
+> Under the *correct* firmware (OVMF) GRUB started and failed with
+> `error: file '/boot/grub/fonts/unicode.pf2' not found.` The archived EFI image
+> carries the stock graphical theme, reads `gfxterm`, has **no `serial` terminal**
+> and **no `set timeout`** — so a headless boot waits forever at an **invisible
+> menu** with no output.
+>
+> **Fixes (in-tree):**
+> - `packaging/live-build/auto/config` — `console=ttyS0,115200n8` on the cmdline
+>   (staged from the previous round).
+> - **NEW** `packaging/live-build/config/includes.binary/boot/grub/config.cfg` — a
+>   headless-first GRUB: `serial --unit=0 --speed=115200` + `terminal_input/output
+>   serial` (gfxterm fallback), `set timeout=5` / `set timeout_style=menu`, theme
+>   disabled, and **guarded `insmod`s** so a missing module cannot abort the config.
+>   `includes.binary/` lands *after* live-build's `create-grub-config`, so this file
+>   replaces the generated `boot/grub/config.cfg` on the ISO.
+>
+> **Boot evidence — real serial log, 57,793 bytes captured** (QEMU + OVMF, `-nographic`):
+> ```
+> [    0.000000] Linux version 7.1.5+kali-amd64 ...
+> [   36.796599] systemd[1]: Created slice system-getty.slice - Slice /system/getty.
+> [   36.808178] systemd[1]: Created slice system-serial-getty.slice ...
+>          Starting Live-config late userspace...
+> [  OK  ] Started ifup@eth0.service - ifup for eth0.
+> ```
+> The GRUB menu is now legible over serial and the boot proceeds without a keystroke.
+>
+> ---
+>
+> #### §2  Why the Hermes *session* still does not appear — two more defects
+>
+> Booting further, the AI-native stack never starts. Two independent packaging gaps:
+>
+> **(a) `kali-ai.target` was never enabled (defect, fixed).** The units ship
+> `WantedBy=kali-ai.target` and the target ships `WantedBy=multi-user.target`, but
+> `WantedBy=` is only a statement of intent — a unit starts because a symlink exists
+> in `<target>.wants/`, and **nothing in the image created those symlinks**. On the
+> built chroot, `/etc/systemd/system/kali-ai.target.wants/` **does not exist** and
+> `multi-user.target.wants/` holds only stock units — i.e. none of
+> `kali-ai-kanban` / `kali-ai-observability` / `hermes-shell` would start. The whole
+> AI-native stack the image exists to demo was inert.
+> **Fix:** new `packaging/live-build/config/hooks/0020-enable-ai-native-units.hook.chroot`
+> runs `systemctl --root=/ enable` for the target and the three services and then
+> **asserts the four symlinks exist** (because `enable` exits 0 even when it wrote
+> nothing). `--root=/` is mandatory: without it `systemctl enable` inside the chroot
+> tries to talk to the *build host's* systemd and refuses.
+>
+> **(b) No display manager is installed (open).** `sddm`, `lightdm`, `gdm3`, `xdm`,
+> `nodm` are **all absent** from the image, and `graphical.target.wants/` is empty.
+> `/usr/share/wayland-sessions/hermes-shell.desktop` exists and is correct, but
+> **nothing ever offers it** — there is no greeter to select "Hermes AI Desktop"
+> from. This is a packaging gap (the minimal package set omits the DM); fixed by
+> adding `sddm` to the package list. Not closed in-sandbox (see §5).
+>
+> **(c) The boot stalls at `ldconfig.service` under the 2 GB cgroup.** The last real
+> line of a 480-second boot is
+> `[  ***] (3 of 3) Job ldconfig.service/start running (23s / no limit)` — an
+> **unbounded** job, and the guest is inside the sandbox's fixed 2 GB
+> `memory.max` (`memory.events: oom_kill 1`), so it crawls. On a host without that
+> cap (the normal case) `ldconfig` finishes in seconds and the getty prompt appears.
+>
+> **Net:** `bootable_iso: true` (UEFI). `hermes_session_reached: false` — the image
+> reaches late userspace but stops before the login prompt in *this* sandbox, and the
+> Hermes session needs a display manager that the minimal package set omits.
+>
+> ---
+>
+> #### §3  Closed features (3, with tests)
+>
+> **F1 — Tool *footprints* (effects), enforced by the guardrail engine.**
+> `tool-frontends/tool_frontends/effects.py`: a closed vocabulary
+> (`fs.write`, `fs.delete`, `process.spawn`, `process.signal`, `network.listen`,
+> `secrets`, `persist`, …), `is_mutating()`, and an `infer_effects()` suggestion.
+> `ToolSpec.effects` was added; `registry.add()` rejects an unknown effect name.
+> **The guardrail fix it enables:** the old T3-sandbox rule keyed on *tier*, and tier
+> describes intrusiveness toward the **target**, not the **local** blast radius — so
+> a **T0** tool like `log_rotate` (`logrotate /etc/logrotate.conf`, rewrites files)
+> was never required to be sandboxed. New stage 4b: a **declared mutating footprint
+> forces `requires_sandbox` from T1 up**; tier can only widen the check, never narrow
+> it (the same fail-closed direction as the scope floor). Enforcement is
+> **declared-only** — see §4 for why, and the named migration backlog.
+>
+> **F2 — Capability manifest (`/capabilities`).** `capabilities.py` renders one
+> machine-readable statement of what the layer can do: tool counts by tier/category,
+> the **union footprint**, and a `gaps` block (`effects_inferred_count`,
+> `effects_undeclared` list, `mutating_without_sandbox_count`). It is derived from the
+> **same specs the guardrails read**, so it cannot describe a policy the enforcement
+> path does not apply.
+>
+> **F3 — Audit-chain `effects` column + an operator validator.**
+> Every audit row now records the tool's enforced footprint, so the chain answers
+> "what did this call touch?" as well as "what did it run". A **migration** adds the
+> column to a pre-Phase-17 database (the `CREATE TABLE IF NOT EXISTS` never alters an
+> existing table, so the new INSERT would have failed), and `verify_chain` includes
+> the field **only when non-NULL** — otherwise a valid older chain would verify as
+> tampered. **NEW** `scripts/verify_tool_audit.py` walks the chain and prints the
+> verdict (exit 0/1), verified both ways: `PASS … rows=2 chain=PASS` on a real store,
+> `FAIL … database missing` on a missing one.
+>
+> ---
+>
+> #### §4  Defects found and fixed
+>
+> | # | Defect | Evidence | Fix |
+> |---|---|---|---|
+> | D24 | Effect **inference over-caught reads**: `" -o "` matched `kubectl -o json` / `nmap -oN` | 11 tool-frontends tests refused | `-o`/`--output` dropped from the hints; enforcement switched to **declared-only** |
+> | D25 | `audit_effects()["suggested_mutators"]` read the **enforced** set (empty for undeclared tools) — permanently empty | unit check printed `[]` for 73 tools | reads `inferred_effects()` |
+> | D26 | Pre-Phase-17 DBs lack the `effects` column → new INSERT fails | — | `_migrate_effects_column()` ALTER + NULL-aware `verify_chain` |
+> | D27 | **Pre-existing** test isolation bug: `test_audit_cursor_advances` shared the on-disk cursor file, so it depended on execution order (failed when the full suite ran) | v20 baseline: **1 failure**, same test | test now passes an isolated `cursor_path` |
+>
+> D24/D25 were introduced *and* fixed inside this round (the tests caught them);
+> D27 was latent in `main` and is now closed — the suite went **fail → pass**.
+>
+> ---
+>
+> #### §5  Counts (previous → this round)
+>
+> | Metric | v20 (`09377c5`) | v21 (this round) |
+> |---|---|---|
+> | tests | **2062** | **2096** (+34) |
+> | failures | **1** (pre-existing, D27) | **0** |
+> | skipped | 17 | 17 |
+> | tool wrappers | 74 | 74 (1 now declares a footprint; 1 new audit script) |
+> | effect declarations | 0 | 1 (`log_rotate`) |
+> | RC1 ISO | not present | **704,016,384 B**, `sha256 b7702c84…` |
+>
+> `python3 -m pytest kanban-core tool-frontends agent-runtime observability hermes-shell board-ui memory-store` → **2096 passed, 0 failed, 17 skipped** (`--junitxml` totals: `tests=2096 failures=0 errors=0`).
+>
+> ---
+>
+> #### §6  Open / blocked, stated plainly
+>
+> - **The RC1 ISO is the *minimal-configuration* build** (701 MB, `kali-linux-core`),
+>   not the full `kali-linux-core + kali-tools-*` set (2.7 GB). The full set is
+>   blocked in-sandbox: `seclists` (545 MB, a hard dependency of `kali-tools-*`)
+>   cannot be extracted because the 2 GB cgroup OOM-kills dpkg's decompressor —
+>   `dpkg-deb: error: <decompress> subprocess was killed by signal (Killed)`, with
+>   `memory.events oom_kill 1`, `memory.peak 2049.95 MB`. This is a **sandbox memory
+>   limit**, not a packaging error; on a host without the cap the full set builds.
+> - **BIOS/UEFI:** the ISO is UEFI-only. A BIOS-bootable hybrid needs
+>   `--bootloader syslinux,grub-efi` in `auto/config` **and** the BIOS bootloader
+>   package (`grub-pc-bin`) mirror-fetched into the chroot during the bootstrap stage
+>   — a full rebuild, not a config-only change.
+> - **Hermes session in-sandbox:** blocked by the `ldconfig` stall + the 2 GB cap; the
+>   `bootable_iso` claim is proven, the `hermes_session_reached` claim is **not**.
+> - **Remote access:** `git ls-remote` to GitHub times out from this sandbox
+>   (network policy); the push uses the configured deploy key and the remote SHA is
+>   read back from the push itself.
+
 > ### Phase 15 — ✅ the Dream list worked through (items 1–10)
 >
 > Worked from `documents/ai-native-kali_v19` (a copy of the `a81a51c` head, per the

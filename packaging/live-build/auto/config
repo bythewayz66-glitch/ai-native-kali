@@ -35,6 +35,18 @@ RELEASE_NAME="${RELEASE_NAME:-mem20kaliai-1.0-rc1}"
 RELEASE_FILENAME="${RELEASE_FILENAME:-Mem20kaliai version 1.0 rc1}"
 RELEASE_VOLUME="${RELEASE_VOLUME:-KALI_AI_NATIVE_RC1}"
 
+# Phase 16: serial console + verbose boot.
+#
+# The stock cmdline had neither, so booting the RC1 image headless (QEMU
+# `-nographic`, a serial console, a VM with no display) produced **no console
+# output at all** - the guest ran for the full 300 s timeout and the captured log
+# was empty, which makes a headless boot failure undiagnosable. `console=` is a
+# kernel parameter, not something an ISO can set externally, so it has to live
+# here.
+#
+# `quiet splash` is dropped for the same reason: it suppresses the log this is
+# meant to emit. A security appliance is routinely run headless, so a working
+# serial console is the right default, not a debugging flag.
 lb config noauto \
   --distribution kali-rolling \
   --architectures amd64 \
@@ -48,7 +60,7 @@ lb config noauto \
   --linux-flavours amd64 \
   --bootloader grub-efi \
   --binary-images iso-hybrid \
-  --bootappend-live "boot=live components quiet splash username=kali hostname=kali-ai" \
+  --bootappend-live "boot=live components console=tty0 console=ttyS0,115200n8 username=kali hostname=kali-ai" \
   --image-name "$RELEASE_NAME" \
   --iso-application "AI-native Kali" \
   --iso-publisher "AI-native Kali project" \

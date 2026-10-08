@@ -167,6 +167,12 @@ SYSTEM_TOOLS: list[ToolSpec] = [
         ],
         dry_run_template="logrotate --debug {config}",
         live_template="logrotate {config}",
+        # Phase 17: the first tool to state its local footprint. ``logrotate`` is
+        # T0 - it contacts nothing - but its live form rewrites files, which tier
+        # alone never said. Declaring it is what makes the footprint floor real:
+        # before this, the flag that gates the sandbox and the audit row that
+        # describes the call both had nothing to read.
+        effects=["fs.write"],
         explain="Debug mode prints what would be rotated without touching a file.",
         next_steps=["verify free space improved", "close the hygiene card"],
         timeout_s=60,

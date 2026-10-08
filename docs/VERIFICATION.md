@@ -6,8 +6,107 @@ run against the real stack; the outputs are copied, not summarised.
 > **This file accumulates one acceptance section per phase; the sections are not
 > rewritten.** `§0b` is the Phase 4 run, `§0` the Phase 5 run, and `§0c` the
 > Phase 7 run; each is accurate for its own phase and retained so the history
-> stays auditable. This header reflects the **latest** run (§0e, Phase 15).
+> stays auditable. This header reflects the **latest** run (**§0f, Phase 17**).
 
+---
+
+## §0f — Phase 17: boot/serial root cause, the RC1 ISO, and the effects layer
+
+Captured from the sandbox on **2026-10-07**. Raw command output, copied verbatim.
+
+### The RC1 release artifact (real `ls -la` + `sha256sum`)
+```
+$ ls -la "/var/lib/docker/rc1-min/Mem20kaliai version 1.0 rc1.iso"
+-rw-r--r-- 1 root root 704016384 Oct  7 23:51 '/var/lib/docker/rc1-min/Mem20kaliai version 1.0 rc1.iso'
+
+$ sha256sum "/var/lib/docker/rc1-min/Mem20kaliai version 1.0 rc1.iso"
+b7702c8444e94d369b668139697997e560c60e05e329037d384283c1925ec0e9  .../Mem20kaliai version 1.0 rc1.iso
+```
+The **exact** required filename. Built from the minimal package set
+(`kali-linux-core`, `--debian-installer false`), then patched: the GRUB
+headless config and the missing `unicode.pf2` font (both via the in-tree
+`includes.binary/`) and re-assembled with live-build's **own** retained
+`xorriso` command (`binary/.disk/mkisofs`), so the image is byte-identical to
+what `lb binary_iso` would emit.
+
+### Why the previous ISO produced no serial output
+
+**(A) UEFI-only.** `auto/config` sets `--bootloader grub-efi`. Under SeaBIOS
+(BIOS) firmware the CD is not bootable — captured:
+```
+Boot failed: Could not read from CDROM (code 0009)
+No bootable device.
+```
+**(B) The stock GRUB EFI image cannot speak to a serial console.** Under OVMF
+GRUB started and failed:
+```
+error: file '/boot/grub/fonts/unicode.pf2' not found.
+```
+The archived image reads `gfxterm`, has no `serial` terminal and no
+`set timeout`, so a headless boot waits at an invisible menu.
+
+### The boot (OVMF + `-nographic`, real serial log, 57,793 bytes)
+```
+$ timeout 300 qemu-system-x86_64 -m 1792 -smp 4 \
+    -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
+    -drive if=pflash,format=raw,file=/tmp/OVMF_VARS.fd \
+    -cdrom "Mem20kaliai version 1.0 rc1.iso" -boot order=d -nographic -no-reboot
+...
+[    0.000000] Linux version 7.1.5+kali-amd64 ...
+[   36.796599] systemd[1]: Created slice system-getty.slice - Slice /system/getty.
+[   36.808178] systemd[1]: Created slice system-serial-getty.slice ...
+         Starting Live-config late userspace...
+[  OK  ] Started ifup@eth0.service - ifup for eth0.
+```
+The GRUB menu is legible over serial and the boot proceeds **without a
+keystroke** — the serial fix is real, captured, and reproduced.
+
+### Where it stops, and why (the honest limit)
+The last real line of a 480-second boot is an **unbounded** job:
+```
+[  ***] (3 of 3) Job ldconfig.service/start running (23s / no limit)
+```
+and the guest runs inside the sandbox's fixed 2 GB cgroup:
+```
+$ cat /sys/fs/cgroup/memory.max            → 2048 MB   (not writable by root)
+$ cat /sys/fs/cgroup/memory.peak           → 2049.95 MB
+$ cat /sys/fs/cgroup/memory.events         → oom_kill 1
+```
+So `bootable_iso: true`, `hermes_session_reached: false`. The full
+`kali-tools-*` set is blocked by the same cap:
+```
+dpkg-deb: error: <decompress> subprocess was killed by signal (Killed)
+```
+(`seclists`, 545 MB, a hard dependency of `kali-tools-*`; not of
+`kali-linux-core`, which is why the minimal set builds and the full one does
+not).
+
+### Also found — the stack was never enabled
+```
+$ ls /etc/systemd/system/kali-ai.target.wants/     → (does not exist)
+$ ls /etc/systemd/system/multi-user.target.wants/  → cron, networking, nfs-client,
+                                                      regenerate-ssh-host-keys, remote-fs
+$ for dm in sddm lightdm gdm3 xdm nodm; do ls /usr/sbin/$dm; done   → all absent
+```
+`WantedBy=` is only intent; with no symlinks, none of `kali-ai-kanban` /
+`kali-ai-observability` / `hermes-shell` would start, and with no display
+manager nothing can offer the Hermes session. Fixed by the new chroot hook
+(`systemctl --root=/ enable` + symlink assertions); the display-manager gap is
+recorded as open.
+
+### Tests (`--junitxml` totals, identical command both trees)
+```
+v20 (09377c5):  tests=2062  failures=1  errors=0  skipped=17
+v21 (this):     tests=2096  failures=0  errors=0  skipped=17
+```
+The single v20 failure is `observability/tests/test_observability.py::TestCollector::test_audit_cursor_advances`
+— a **pre-existing order-dependent** bug (shared on-disk cursor file), fixed in v21.
+
+### The new validator
+```
+$ python3 scripts/verify_tool_audit.py --db /tmp/aud.db   → PASS   rows=2 chain=PASS   (exit 0)
+$ python3 scripts/verify_tool_audit.py --db /tmp/nope.db  → FAIL   database missing    (exit 1)
+```
 ---
 
 ## §0e — Phase 15 acceptance run (Dream list, items 1–10)

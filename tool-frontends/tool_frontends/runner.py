@@ -197,6 +197,7 @@ def run_tool(
                 command=command,
                 args=args,
                 reasons=reasons,
+                effects=spec.enforced_effects(),
             )
         return ToolResult(
             tool=spec.name,
@@ -229,6 +230,7 @@ def run_tool(
                 command=command,
                 args=args,
                 reasons=[],
+                effects=spec.enforced_effects(),
             )
         return ToolResult(
             tool=spec.name,
@@ -315,6 +317,7 @@ def run_tool(
             exit_code=exit_code,
             args=args,
             reasons=[],
+            effects=spec.enforced_effects(),
         )
 
     return ToolResult(

@@ -62,6 +62,7 @@ class ToolAuditLog:
                   exit_code    INTEGER,
                   args         TEXT,
                   reasons      TEXT,
+                  effects      TEXT,
                   prev_hash    TEXT NOT NULL,
                   hash         TEXT NOT NULL
                 );
@@ -69,7 +70,23 @@ class ToolAuditLog:
                 CREATE INDEX IF NOT EXISTS idx_audit_card ON tool_audit(card_id);
                 """
             )
+            self._migrate_effects_column()
             self._conn.commit()
+
+    def _migrate_effects_column(self) -> None:
+        """Add the ``effects`` column to a database created before Phase 17.
+
+        ``CREATE TABLE IF NOT EXISTS`` leaves an existing table untouched, so a
+        store on disk from an earlier phase would keep opening but refuse the new
+        INSERT. The column is left NULL-able on purpose: a row written before the
+        column existed cannot have its original hash re-derived *with* an effects
+        field, so :meth:`verify_chain` includes the field only when it is
+        non-NULL. That keeps an older chain verifiable instead of declaring its
+        own history tampered with.
+        """
+        cols = {row[1] for row in self._conn.execute("PRAGMA table_info(tool_audit)")}
+        if "effects" not in cols:
+            self._conn.execute("ALTER TABLE tool_audit ADD COLUMN effects TEXT")
 
     def close(self) -> None:
         with _LOCK:
@@ -92,6 +109,7 @@ class ToolAuditLog:
         exit_code: Optional[int] = None,
         args: Optional[dict[str, Any]] = None,
         reasons: Optional[list[str]] = None,
+        effects: Optional[list[str]] = None,
     ) -> dict[str, Any]:
         with _LOCK:
             row = self._conn.execute("SELECT hash FROM tool_audit ORDER BY seq DESC LIMIT 1").fetchone()
@@ -111,14 +129,15 @@ class ToolAuditLog:
                 "exit_code": exit_code,
                 "args": args or {},
                 "reasons": reasons or [],
+                "effects": effects or [],
                 "prev_hash": prev_hash,
             }
             digest = chain_hash(prev_hash, record)
             cur = self._conn.execute(
                 """INSERT INTO tool_audit
                      (ts,tool,tier,caller,card_id,target,status,dry_run,decision,command,
-                      duration_ms,exit_code,args,reasons,prev_hash,hash)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                      duration_ms,exit_code,args,reasons,effects,prev_hash,hash)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     ts,
                     tool,
@@ -134,6 +153,7 @@ class ToolAuditLog:
                     exit_code if exit_code is None else int(exit_code),
                     canonical(args or {}),
                     canonical(reasons or []),
+                    canonical(effects or []),
                     prev_hash,
                     digest,
                 ),
@@ -187,6 +207,7 @@ class ToolAuditLog:
             "exit_code": row["exit_code"],
             "args": json.loads(row["args"] or "{}"),
             "reasons": json.loads(row["reasons"] or "[]"),
+            "effects": (json.loads(row["effects"] or "[]") if "effects" in row.keys() else []),
             "prev_hash": row["prev_hash"],
             "audit_hash": row["hash"],
         }
@@ -220,6 +241,12 @@ class ToolAuditLog:
                 "reasons": json.loads(row["reasons"] or "[]"),
                 "prev_hash": prev,
             }
+            # Rows written before the effects column existed were hashed without
+            # it; adding it unconditionally would report a valid older chain as
+            # tampered. New rows always carry a value (possibly an empty list).
+            stored_effects = row["effects"] if "effects" in row.keys() else None
+            if stored_effects is not None:
+                record["effects"] = json.loads(stored_effects or "[]")
             if row["prev_hash"] != prev or row["hash"] != chain_hash(prev, record):
                 return {
                     "ok": False,

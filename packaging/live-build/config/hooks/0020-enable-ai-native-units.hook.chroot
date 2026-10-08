@@ -1,0 +1,56 @@
+#!/bin/bash
+# Enable the AI-native stack so it actually starts in the live session.
+#
+# Why this hook exists (Phase 17 defect):
+#   The units ship `WantedBy=kali-ai.target` (and `kali-ai.target` ships
+#   `WantedBy=multi-user.target`), but `WantedBy=` is only *a statement of
+#   intent* - a unit is started because a symlink exists in `<target>.wants/`,
+#   and nothing in the image created those symlinks. `systemctl enable` was
+#   never run, so on a booted ISO none of kali-ai-kanban / kali-ai-observability
+#   / hermes-shell started: the whole AI-native stack the image exists to demo
+#   sat inert. `systemctl is-enabled` on the built image reported the units as
+#   disabled, which is the check this hook is here to make pass.
+#
+#   `systemctl enable` inside the chroot would try to talk to the *build host's*
+#   running systemd (it detects the live bus and refuses, or worse, enables the
+#   unit on the host). It is given a real `--root=/` so it operates purely on
+#   files: it resolves the `WantedBy=` lines and writes the symlinks without
+#   touching any bus. That is why the `--root` argument is not optional here.
+set -e
+
+echo "[kali-ai-native] enabling the AI-native systemd units"
+
+for unit in kali-ai-kanban.service kali-ai-observability.service hermes-shell.service; do
+  if [ ! -f "/etc/systemd/system/$unit" ]; then
+    echo "  !! $unit missing from the image; the stack cannot start" >&2
+    exit 1
+  fi
+done
+
+# kali-ai.target first: enabling the three services writes into
+# kali-ai.target.wants/, which is only meaningful once kali-ai.target itself is
+# wanted by multi-user.target.
+systemctl --root=/ enable kali-ai.target
+for unit in kali-ai-kanban.service kali-ai-observability.service hermes-shell.service; do
+  echo "  -> enabling $unit"
+  systemctl --root=/ enable "$unit"
+done
+
+# Prove the symlinks landed - `enable` exits 0 even if it wrote nothing useful,
+# so the hook checks the artefacts it claims to have created.
+fail=0
+for link in \
+  /etc/systemd/system/multi-user.target.wants/kali-ai.target \
+  /etc/systemd/system/kali-ai.target.wants/kali-ai-kanban.service \
+  /etc/systemd/system/kali-ai.target.wants/kali-ai-observability.service \
+  /etc/systemd/system/kali-ai.target.wants/hermes-shell.service; do
+  if [ -L "$link" ]; then
+    echo "  ok  $link -> $(readlink "$link")"
+  else
+    echo "  !!  $link was NOT created" >&2
+    fail=1
+  fi
+done
+[ "$fail" -eq 0 ] || exit 1
+
+echo "[kali-ai-native] AI-native units enabled"

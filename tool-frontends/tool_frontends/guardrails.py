@@ -15,6 +15,7 @@ from typing import Any, Optional
 
 from kanban_core.models import Scope
 
+from .effects import MUTATING_EFFECTS, is_mutating
 from .spec import ToolSpec
 from .targets import classify as classify_target
 from .targets import escapes as target_escapes
@@ -237,6 +238,25 @@ def evaluate(
     # -- stage 4: sandbox ---------------------------------------------------
     if spec.tier >= 3 and not spec.requires_sandbox:
         reasons.append("T3 tool is not marked requires_sandbox (blueprint 08: T3 must be sandboxed)")
+
+    # -- stage 4b: the local-footprint floor --------------------------------
+    # The T3 rule above keys on *tier*, and tier describes intrusiveness toward
+    # the **target**, not the local blast radius. So a T0/T1 tool that rewrites
+    # the local filesystem or spawns a process was never required to be
+    # sandboxed: ``log_rotate`` is T0, sends nothing, and its live template
+    # (``logrotate /etc/logrotate.conf``) still rewrites files. The footprint a
+    # spec states (or, until it states one, the footprint inferred from its
+    # binary/tier/templates) now forces the sandbox from T1 up. Tier can only
+    # widen this check, never narrow it - the same fail-closed direction as the
+    # scope floor in stage 2.
+    declared_effects = spec.enforced_effects()
+    checks["effects"] = declared_effects
+    checks["effects_declared"] = spec.effects_declared
+    if spec.tier >= 1 and is_mutating(declared_effects) and not spec.requires_sandbox:
+        reasons.append(
+            f"T{spec.tier} tool '{spec.name}' declares mutating effects "
+            f"{sorted(set(declared_effects) & MUTATING_EFFECTS)} but is not sandboxed"
+        )
 
     # -- stage 5: live unlock ----------------------------------------------
     if live and not live_unlocked:

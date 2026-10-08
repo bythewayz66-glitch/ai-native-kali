@@ -83,6 +83,58 @@ class ToolSpec(BaseModel):
     requires_approval: bool = False
     requires_sandbox: bool = False
 
+    #: Declared local footprint (see ``effects.py``). Empty means "not declared".
+    #: Only a *declared* footprint is enforced - inference is report-only, so a
+    #: heuristic can never deny a tool whose real footprint is benign.
+    effects: list[str] = Field(default_factory=list)
+
+    @property
+    def effects_declared(self) -> bool:
+        """True when the author stated the footprint rather than it being inferred."""
+        return bool(self.effects)
+
+    def inferred_effects(self) -> list[str]:
+        """Best-effort footprint from binary/tier/templates when none is declared.
+
+        Report-only. It exists to size the migration below, not to gate a call:
+        keyword inference cannot tell ``kubectl -o json`` (an output *format*) from
+        ``-o file`` (a write), and a heuristic that denies a read-only tool is a
+        heuristic that gets deleted rather than fixed.
+        """
+        from .effects import infer_effects
+
+        return infer_effects(
+            binary=self.binary,
+            tier=self.tier,
+            requires_scope=self.requires_scope,
+            live_template=self.live_template,
+            dry_run_template=self.dry_run_template,
+        )
+
+    def enforced_effects(self) -> list[str]:
+        """The footprint the guardrails actually gate on: the declaration.
+
+        Deliberately **declared-only**. Enforcement runs on facts an author
+        stated, so the gate is deterministic and cannot refuse a benign tool
+        because a substring matched its template. Where nothing is declared the
+        returned list is empty and :attr:`effects_declared` is False, which the
+        registry reports as a migration backlog - the gap is measured rather
+        than assumed away, and each declaration shrinks it.
+        """
+        from .effects import normalize
+
+        return normalize(self.effects)
+
+    def effect_report(self) -> dict[str, Any]:
+        """Machine-readable footprint: the enforced list, the inferred list, the
+        derived flags, and which of the two the gate actually read."""
+        from .effects import describe
+
+        report = describe(self.enforced_effects(), declared=self.effects_declared)
+        report["inferred"] = self.inferred_effects()
+        report["enforced"] = report["declared"]
+        return report
+
     #: how to explain results back to the human (blueprint 05: result explanation)
     explain: str = ""
     #: suggested next steps after a run
