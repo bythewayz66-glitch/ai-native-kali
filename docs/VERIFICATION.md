@@ -6,7 +6,71 @@ run against the real stack; the outputs are copied, not summarised.
 > **This file accumulates one acceptance section per phase; the sections are not
 > rewritten.** `§0b` is the Phase 4 run, `§0` the Phase 5 run, and `§0c` the
 > Phase 7 run; each is accurate for its own phase and retained so the history
-> stays auditable. This header reflects the **latest** run (**§0f, Phase 17**).
+> stays auditable. This header reflects the **latest** run (**§0g, Phase 18**).
+
+---
+
+## §0g — Phase 18: credential-hygiene audit (zero hits, verified two ways)
+
+Run on the Phase 17 head (`a00b4ba`) copied to `ai-native-kali_v23`. The task was to scrub
+an old Sidney root password said to be recorded in `HANDOFF.md`. It was not there. Every
+command below is copied verbatim.
+
+**Working tree — six patterns:**
+
+```
+$ grep -rn  "<sidney-host-ip>" . -I 2>/dev/null | grep -v "^\./\.git/"
+hits: 0
+$ grep -rni "sidney"          . -I 2>/dev/null | grep -v "^\./\.git/"
+hits: 0
+$ grep -rn  "\b2222\b"        . -I 2>/dev/null | grep -v "^\./\.git/"
+hits: 0
+$ grep -rniE "password['\"]?[[:space:]]*[:=][[:space:]]*['\"]?a['\"]?([^a-z0-9_]|$)" . -I | grep -v "^\./\.git/"
+hits: 0
+$ grep -rn  "SSHPASS\|sshpass" . -I 2>/dev/null | grep -v "^\./\.git/"
+hits: 0
+$ grep -rni "<new-rotated-value>" . -I 2>/dev/null | grep -v "^\./\.git/"
+hits: 0
+```
+
+(The host address and the rotated value are substituted above with `<sidney-host-ip>` and
+`<new-rotated-value>` so this record does not itself become a hit. The literal patterns were
+what was run; the counts are the real ones.)
+
+The null result is trustworthy — the same `grep` invocation demonstrably matches:
+
+```
+$ grep -rn "Phase 17" HANDOFF.md BUILD_STATUS.md
+HANDOFF.md:3:> ### Phase 17 (latest, 2026-10-07) — the RC1 ISO boots; boot/serial root cause; effects layer
+BUILD_STATUS.md:3:> ### Phase 17 — ✅ the release ISO boots; boot/serial root cause found; 4 defects fixed
+```
+
+Independent second pass, over every file `file(1)` classifies as text (**421** files):
+
+```
+$ wc -l < /tmp/txtfiles.txt
+421
+$ xargs -a /tmp/txtfiles.txt grep -l -E "<sidney-host-ip>|sidney|sshpass|SSHPASS"
+(none above = zero)
+```
+
+**Full git history — the string was never committed:**
+
+```
+$ git log --all --oneline -S"<sidney-host-ip>"
+(end ip history)           # no commits
+$ git log --all --oneline -i -S"sidney"
+(end sidney history)       # no commits
+```
+
+**Conclusion.** There was no file:line to replace, so no file content was altered to remove a
+secret and **no redaction entry was fabricated**. Added instead: `HANDOFF.md` §4.4 — a policy
+block recording the audit, the zero proof, and the rule that credentials stay out-of-band and
+that a zero-hit scrub is reported as zero. A live credential rotation is a host-side operator
+action; nothing in this repo performs or claims it.
+
+**Suite after the docs change:** `tests 2096  failures 0  errors 0  skipped 17`, `EXIT=0`
+— unchanged from the `a00b4ba` baseline, as expected for a docs-only edit.
 
 ---
 

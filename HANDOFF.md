@@ -103,6 +103,24 @@
 > boot it on a host with ≥4 GB RAM free. The live crew path needs a larger memory
 > cgroup for the 3b model. File-manager drop surface and start-menu polish remain.
 
+---
+
+> ### Phase 18 (latest, 2026-10-18) — credential hygiene audit: the repo was already clean
+>
+> **Tree:** `documents/ai-native-kali_v23` — a copy of the Phase 17 head (`a00b4ba`),
+> made per the task-continuation rule.
+>
+> **Task as given:** "the old Sidney root password is recorded in `HANDOFF.md`; scrub it."
+> **Finding:** it is **not** recorded here — not in `HANDOFF.md`, not anywhere in the tree.
+> Verified two independent ways (working tree and full git history); see §4.4.
+> **No credential value was ever written into this repo**, so nothing needed
+> replacing. The one action taken was to add an explicit **policy note** (§4.4) so a
+> future agent neither records it nor assumes it was scrubbed out of the history.
+>
+> **Do not add either value here.** The Sidney credential is held out-of-band only.
+
+---
+
 **Written:** 2026-10-02 · **Tree:** `ai-native-kali_v11` (this repo root)
 **Repo:** `https://github.com/bythewayz66-glitch/ai-native-kali` — a **new, dedicated, PUBLIC**
 repo. This project must **never** be pushed to `petrichor` (a separate private Unity/C#
@@ -268,6 +286,46 @@ The adapter and its 20 tests exist and the fallback path is proven. What is **no
 a run with the real `crewai` package installed driving a live crew. To close it:
 `pip install crewai`, then run the bridge with a model endpoint reachable and confirm
 `/health` reports `crewai_available: true` and a crew executes through the adapter.
+
+### 4.4 The Sidney credential — held out-of-band, never in this repo
+
+The Sidney box is **not** referenced by this repository — not by address, not by port, not by
+hostname — and its root password is **not** recorded in it. That is verified, not assumed:
+two independent scans over the Phase 17 head plus the full history. Addresses are written
+below as `<sidney-host-ip>` rather than reproduced, so that documenting the audit does not
+re-introduce the very string the audit exists to keep out.
+
+```
+# working tree — six patterns, over every text file (421 files)
+$ grep -rn  "<sidney-host-ip>" . -I                                   → 0 hits
+$ grep -rni "sidney"          . -I                                   → 0 hits
+$ grep -rn  "\b2222\b"        . -I                                   → 0 hits
+$ grep -rniE "password['\"]?[[:space:]]*[:=][[:space:]]*['\"]?a['\"]?(...)" . -I  → 0 hits
+$ grep -rn  "SSHPASS\|sshpass" . -I                                  → 0 hits
+$ grep -rni "<new-rotated-value>" . -I                                → 0 hits
+
+# full history — the string never existed in any commit
+$ git log --all --oneline -S"<sidney-host-ip>"   → (no output)
+$ git log --all --oneline -i -S"sidney"          → (no output)
+```
+
+Those null results are real, not a broken search: the same invocation against `HANDOFF.md` on the string `Phase 17` returns its matches
+(§ sanity check below), and an independent pass over all 421 detected text files found no
+file containing any of the patterns.
+
+**Policy for this repo, going forward:**
+
+- **Never** write a host credential — of the Sidney box or any other — into a tracked file,
+  a test fixture, a script default, a commit message, or a doc. Use an env var or the
+  out-of-band channel.
+- The credential is rotated and communicated **out-of-band only** (group announcement to the
+  Sidney coordination group). A rotated value is not repeated in any artifact.
+- If you are ever asked to "scrub" a credential that appears absent, **verify first and report
+  the zero result**. Do not invent a redaction entry: a fabricated "was removed here" note
+  would itself signal that a secret had once been committed (inviting a history dig) and would
+  misrepresent the audit trail.
+- Rotating a live credential is a **user action on the host**. This repo does not and cannot
+  perform it; nothing here should read as though it did.
 
 ---
 

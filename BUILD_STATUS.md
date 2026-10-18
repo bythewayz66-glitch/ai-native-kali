@@ -1,5 +1,22 @@
 # BUILD STATUS — AI-native Kali
 
+> ### Phase 18 — ✅ credential-hygiene audit: nothing to scrub, and that is the finding
+>
+> **Tree:** `documents/ai-native-kali_v23` (copy of the `a00b4ba` head, per the
+> task-continuation rule).
+>
+> **Task as given:** "the old Sidney root password is recorded in `HANDOFF.md`; scrub it."
+> **Result: the repo never contained it.** Six precise patterns over the working tree plus
+> `git log -S` over the entire history all returned **zero hits** (host address, `sidney`,
+> `\b2222\b`, `password:=a`, `SSHPASS|sshpass`, and the new value). No file:line
+> existed to edit, so **no replacement was made** — inventing a redaction note would have
+> falsely implied a secret had once been committed. Full output in `HANDOFF.md` §4.4 and
+> `docs/VERIFICATION.md` §0g.
+>
+> **What did change:** an explicit policy block (§4.4) stating that host credentials are
+> never written to tracked files and that a zero-hit scrub request is reported as zero
+> rather than actioned. Tests: **2096 → 2096**, 0 failures, exit 0 (unchanged; docs only).
+>
 > ### Phase 17 — ✅ the release ISO boots; boot/serial root cause found; 4 defects fixed
 >
 > **Tree:** `documents/ai-native-kali_v21` (copy of the `09377c5` head, per the
